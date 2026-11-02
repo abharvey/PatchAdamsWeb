@@ -11,7 +11,7 @@ namespace PatchAdamsSharp;
 
 public partial class MainWindow : Window
 {
-    private readonly ObservableCollection<string> files = [];
+    private readonly ObservableCollection<FileTreeEntry> files = [];
     private readonly ObservableCollection<string> findingLabels = [];
     private readonly ObservableCollection<SessionPin> pins = [];
     private readonly List<SessionFinding> findings = [];
@@ -168,7 +168,14 @@ public partial class MainWindow : Window
             files.Clear();
             foreach (var path in columns.SelectMany(column => column.Applied!.Files).Select(file => file.Path)
                          .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-                files.Add(path);
+            {
+                var statuses = columns.Select(column =>
+                {
+                    var file = column.Applied!.FileAt(path);
+                    return $"{BlindDisplayLabel(column.Label)}:{StatusFor(file)}";
+                });
+                files.Add(new FileTreeEntry(path, string.Join("  ", statuses)));
+            }
 
             GoldenPicker.Items.Clear();
             GoldenPicker.Items.Add("None");
@@ -183,7 +190,7 @@ public partial class MainWindow : Window
             RenderColumns();
             if (files.Count > 0)
             {
-                selectedPath = files[0];
+                selectedPath = files[0].Path;
                 RenderColumns();
             }
             RenderRanking();
@@ -196,7 +203,7 @@ public partial class MainWindow : Window
 
     private void FileTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        selectedPath = e.NewValue as string ?? "";
+        selectedPath = (e.NewValue as FileTreeEntry)?.Path ?? "";
         recentSelections.Clear();
         RenderColumns();
     }
@@ -505,12 +512,32 @@ public partial class MainWindow : Window
     {
         var query = SearchBox.Text;
         if (string.IsNullOrEmpty(query)) return;
-        var matches = columns.SelectMany(column => column.Applied?.Files ?? [])
-            .Where(file => file.PostText?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)
-            .Select(file => $"{file.Path} — {columns.First(column => column.Applied?.Files.Contains(file) == true).Label}")
-            .Distinct().ToArray();
-        MessageBox.Show(this, matches.Length == 0 ? "No matches." : string.Join(Environment.NewLine, matches),
+        var matches = new List<string>();
+        foreach (var column in columns)
+        foreach (var file in column.Applied?.Files ?? [])
+        {
+            if (file.PostText is null) continue;
+            var lines = DiffEngine.SplitLines(file.PostText);
+            for (var index = 0; index < lines.Count; index++)
+                if (lines[index].Contains(query, StringComparison.OrdinalIgnoreCase))
+                    matches.Add($"{BlindDisplayLabel(column.Label)} · {Path.GetFileName(file.Path)} L{index + 1}:L{index + 1} — {lines[index].Trim()}");
+        }
+        MessageBox.Show(this, matches.Count == 0 ? "No matches." : string.Join(Environment.NewLine, matches),
             $"Search: {query}", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private static string StatusFor(AppliedFile? file)
+    {
+        if (file is null) return "unchanged";
+        if (file.Status.Kind == ApplyStatusKind.Failed) return "failed";
+        if (file.Status.Kind == ApplyStatusKind.Binary) return "binary";
+        return file.Change.Kind switch
+        {
+            FileChangeKind.Added => "added",
+            FileChangeKind.Deleted => "deleted",
+            _ when file.Status.Kind == ApplyStatusKind.Fuzz => file.Status.Label,
+            _ => "changed"
+        };
     }
 
     private void ShowRawPatch_Click(object sender, RoutedEventArgs e)
@@ -711,6 +738,11 @@ public partial class MainWindow : Window
         public string PatchText { get; } = patchText;
         public Patch Patch { get; } = patch;
         public AppliedPatch? Applied { get; set; }
+    }
+
+    private sealed record FileTreeEntry(string Path, string Statuses)
+    {
+        public string DisplayText => $"{Path}  [{Statuses}]";
     }
 
     private sealed record Selection(

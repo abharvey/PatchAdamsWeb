@@ -50,7 +50,13 @@
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Files" FontWeight="Bold" Margin="6"/>
                     <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_SelectedItemChanged"
-                              Background="#101A2B" Foreground="#E7EDF5" BorderThickness="0"/>
+                              Background="#101A2B" Foreground="#E7EDF5" BorderThickness="0">
+                        <TreeView.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap" Margin="2"/>
+                            </DataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
                 </DockPanel>
             </Border>
             <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
