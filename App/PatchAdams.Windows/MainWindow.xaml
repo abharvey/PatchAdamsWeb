@@ -16,6 +16,7 @@
                     <Button Content="Add patches…" Click="AddPatches_Click"/>
                     <Button Content="Open session…" Click="OpenSession_Click"/>
                     <Button Content="Save session…" Click="SaveSession_Click"/>
+                    <Button Content="Manage columns…" Click="ManageColumns_Click"/>
                     <Button Content="Export Markdown…" Click="ExportMarkdown_Click"/>
                     <Button Content="Export JSON…" Click="ExportJson_Click"/>
                     <TextBlock Text="Golden:" VerticalAlignment="Center" Margin="14,0,2,0"/>

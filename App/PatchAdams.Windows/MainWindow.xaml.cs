@@ -226,10 +226,11 @@ public partial class MainWindow : Window
         comparisons.Clear();
         ReferenceText.Text = "Select lines in a column to generate a reference.";
         if (columns.Count == 0) return;
-        for (var index = 0; index < columns.Count; index++)
+        var visibleColumns = columns.Where(column => !column.IsHidden).ToArray();
+        for (var index = 0; index < visibleColumns.Length; index++)
         {
             ColumnsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var column = columns[index];
+            var column = visibleColumns[index];
             var panel = new DockPanel { Margin = new Thickness(4) };
             var header = new TextBlock
             {
@@ -240,6 +241,7 @@ public partial class MainWindow : Window
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(3, 3, 3, 7)
             };
+            header.ContextMenu = CreateColumnMenu(column);
             DockPanel.SetDock(header, Dock.Top);
             panel.Children.Add(header);
 
@@ -283,6 +285,91 @@ public partial class MainWindow : Window
             Grid.SetColumn(panel, index);
             ColumnsGrid.Children.Add(panel);
         }
+    }
+
+    private ContextMenu CreateColumnMenu(LoadedColumn column)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(CreateMenuItem("Move left", () => MoveColumn(column, -1)));
+        menu.Items.Add(CreateMenuItem("Move right", () => MoveColumn(column, 1)));
+        menu.Items.Add(CreateMenuItem(column.IsHidden ? "Show column" : "Hide column", () => ToggleHidden(column)));
+        menu.Items.Add(CreateMenuItem(column.IsRead ? "Mark unread" : "Mark read", () =>
+        {
+            column.IsRead = !column.IsRead;
+            RenderColumns();
+        }));
+        return menu;
+    }
+
+    private static MenuItem CreateMenuItem(string label, Action action)
+    {
+        var item = new MenuItem { Header = label };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    private void MoveColumn(LoadedColumn column, int delta)
+    {
+        var current = columns.IndexOf(column);
+        var target = current + delta;
+        if (target < 0 || target >= columns.Count) return;
+        (columns[current], columns[target]) = (columns[target], columns[current]);
+        RenderColumns();
+        RenderRanking();
+    }
+
+    private void ToggleHidden(LoadedColumn column)
+    {
+        if (!column.IsHidden && columns.Count(candidate => !candidate.IsHidden) <= 1) return;
+        column.IsHidden = !column.IsHidden;
+        RenderColumns();
+    }
+
+    private void ManageColumns_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new Window
+        {
+            Title = "Manage patch columns",
+            Owner = this,
+            Width = 420,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            Background = new SolidColorBrush(Color.FromRgb(24, 38, 59)),
+            Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245))
+        };
+        var panel = new StackPanel { Margin = new Thickness(14) };
+        var checks = new Dictionary<LoadedColumn, CheckBox>();
+        foreach (var column in columns)
+        {
+            var check = new CheckBox
+            {
+                Content = BlindModeToggle.IsChecked == true
+                    ? $"Patch {BlindDisplayLabel(column.Label)}"
+                    : $"{column.Label} — {column.SourceName}",
+                IsChecked = !column.IsHidden,
+                Margin = new Thickness(0, 4, 0, 4)
+            };
+            checks[column] = check;
+            panel.Children.Add(check);
+        }
+        var apply = new Button { Content = "Apply", HorizontalAlignment = HorizontalAlignment.Right };
+        apply.Click += (_, _) =>
+        {
+            if (checks.Values.All(check => check.IsChecked != true))
+            {
+                MessageBox.Show(window, "At least one column must remain visible.", "Manage columns",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            foreach (var (column, check) in checks)
+                column.IsHidden = check.IsChecked != true;
+            window.DialogResult = true;
+        };
+        panel.Children.Add(apply);
+        window.Content = panel;
+        if (window.ShowDialog() == true)
+            RenderColumns();
     }
 
     private static string RenderDisplayLines(IReadOnlyList<DisplayLine> lines)
@@ -748,7 +835,11 @@ public partial class MainWindow : Window
             foreach (var column in contents.Session.Columns)
             {
                 var text = contents.PatchTexts[column.Label];
-                columns.Add(new LoadedColumn(column.Label, column.SourceName, text, UnifiedDiffParser.Parse(text)));
+                columns.Add(new LoadedColumn(column.Label, column.SourceName, text, UnifiedDiffParser.Parse(text))
+                {
+                    IsHidden = column.IsHidden,
+                    IsRead = column.IsRead
+                });
             }
             findings.AddRange(contents.Session.Findings);
             foreach (var pin in contents.Session.Pins) pins.Add(pin);
@@ -777,8 +868,7 @@ public partial class MainWindow : Window
         return new ReviewSession(ReviewSession.CurrentVersion, old?.Name ?? "Patch review", RequestBox.Text,
             baseInfo,
             columns.Select(column => new SessionColumn(column.Label, column.SourceName, "",
-                old?.Columns.FirstOrDefault(existing => existing.Label == column.Label)?.IsHidden ?? false,
-                old?.Columns.FirstOrDefault(existing => existing.Label == column.Label)?.IsRead ?? false)).ToArray(),
+                column.IsHidden, column.IsRead)).ToArray(),
             golden, categories.ToArray(), findings.ToArray(),
             new SessionRanking(rankPickers.ToDictionary(pair => pair.Key,
                 pair => int.TryParse(pair.Value.SelectedItem as string, out var rank) ? rank : (int?)null)
@@ -796,6 +886,8 @@ public partial class MainWindow : Window
         public string PatchText { get; } = patchText;
         public Patch Patch { get; } = patch;
         public AppliedPatch? Applied { get; set; }
+        public bool IsHidden { get; set; }
+        public bool IsRead { get; set; }
     }
 
     private sealed record FileTreeEntry(string Path, string Statuses)
