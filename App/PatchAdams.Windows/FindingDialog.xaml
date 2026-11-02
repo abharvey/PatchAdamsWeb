@@ -7,6 +7,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <TextBlock x:Name="ReferenceLabel" Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,10"/>
         <TextBox x:Name="TitleBox" Grid.Row="1" Margin="0,0,0,8" ToolTip="Finding title"/>
@@ -24,7 +25,13 @@
         </ComboBox>
         <TextBox x:Name="DescriptionBox" Grid.Row="4" Height="90" AcceptsReturn="True"
                  TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+        <ComboBox x:Name="RequestAsksBox" Grid.Row="5" Margin="0,0,0,8">
+            <ComboBoxItem Content="unclear"/><ComboBoxItem Content="yes"/><ComboBoxItem Content="no"/>
+        </ComboBox>
+        <TextBox x:Name="NoteBox" Grid.Row="6" Height="55" AcceptsReturn="True" TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto" Margin="0,0,0,8" ToolTip="Park a correctness concern"/>
+        <CheckBox x:Name="NotFlaggedBox" Grid.Row="7" Content="Considered and passed (not flagged)" Margin="0,0,0,8"/>
+        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Cancel" IsCancel="True"/>
             <Button Content="Save" IsDefault="True" Click="Save_Click"/>
         </StackPanel>

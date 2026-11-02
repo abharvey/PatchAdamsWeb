@@ -10,6 +10,9 @@
                            VerticalAlignment="Center" Margin="4,0,16,0"/>
                 <StackPanel Orientation="Horizontal">
                     <Button Content="Choose base…" Click="ChooseBase_Click"/>
+                    <Button Content="Choose archive…" Click="ChooseArchive_Click"/>
+                    <Button Content="Git revision…" Click="ChooseGitRevision_Click"/>
+                    <Button Content="Rebuild base from patches" Click="RebuildSyntheticBase_Click"/>
                     <Button Content="Add patches…" Click="AddPatches_Click"/>
                     <Button Content="Open session…" Click="OpenSession_Click"/>
                     <Button Content="Save session…" Click="SaveSession_Click"/>
@@ -22,6 +25,8 @@
                     <TextBox x:Name="SearchBox" Width="180" VerticalContentAlignment="Center"
                              KeyDown="SearchBox_KeyDown"/>
                     <Button Content="Find" Click="Search_Click"/>
+                    <CheckBox x:Name="BlindModeToggle" Content="Blind review" VerticalAlignment="Center"
+                              Margin="12,0,4,0" Checked="BlindMode_Changed" Unchecked="BlindMode_Changed"/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -56,6 +61,17 @@
                         <TextBlock Text="Findings" FontWeight="SemiBold"/>
                         <ListBox x:Name="FindingsList" Margin="0,4,0,8" Height="260"/>
                         <Button Content="Add finding from selection…" Click="AddFinding_Click"/>
+                        <Button Content="Pin selection" Click="PinSelection_Click"/>
+                        <Button Content="Correct anchor from last two selections" Click="CorrectAnchor_Click"/>
+                        <Button Content="Show raw patch…" Click="ShowRawPatch_Click"/>
+                        <TextBlock Text="Pins" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                        <ListBox x:Name="PinsList" Height="100" DisplayMemberPath="Reference"
+                                 SelectionChanged="PinsList_SelectionChanged"/>
+                        <TextBlock Text="Ranking (ties allowed)" FontWeight="SemiBold" Margin="0,14,0,4"/>
+                        <StackPanel x:Name="RankingPanel"/>
+                        <TextBox x:Name="RationaleBox" AcceptsReturn="True" TextWrapping="Wrap" Height="80"
+                                 VerticalScrollBarVisibility="Auto" Margin="0,6,0,4"
+                                 ToolTip="Ranking rationale"/>
                         <TextBlock Text="Apply report" FontWeight="SemiBold" Margin="0,14,0,4"/>
                         <TextBlock x:Name="ReportText" Text="Choose a base and add 2–4 patches."
                                    TextWrapping="Wrap"/>

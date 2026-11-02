@@ -7,15 +7,23 @@ public partial class FindingDialog : Window
 {
     public string TitleText => TitleBox.Text.Trim();
     public string Severity => (SeverityBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "minor";
-    public string Category => (CategoryBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "other";
+    public string Category => CategoryBox.Text.Trim();
     public string Description => DescriptionBox.Text;
+    public string Note => NoteBox.Text;
+    public string RequestAsks => (RequestAsksBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "unclear";
+    public bool NotFlagged => NotFlaggedBox.IsChecked == true;
 
-    public FindingDialog(string reference)
+    public FindingDialog(string reference, IEnumerable<string> categories)
     {
         InitializeComponent();
         ReferenceLabel.Text = reference;
-        CategoryBox.SelectedIndex = 0;
+        CategoryBox.IsEditable = true;
+        CategoryBox.Items.Clear();
+        foreach (var category in categories)
+            CategoryBox.Items.Add(new ComboBoxItem { Content = category });
+        CategoryBox.SelectedIndex = CategoryBox.Items.Count > 0 ? 0 : -1;
         SeverityBox.SelectedIndex = 1;
+        RequestAsksBox.SelectedIndex = 0;
         TitleBox.Focus();
     }
 

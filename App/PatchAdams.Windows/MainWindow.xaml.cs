@@ -13,19 +13,30 @@ public partial class MainWindow : Window
 {
     private readonly ObservableCollection<string> files = [];
     private readonly ObservableCollection<string> findingLabels = [];
+    private readonly ObservableCollection<SessionPin> pins = [];
     private readonly List<SessionFinding> findings = [];
+    private readonly List<string> categories = [.. ReviewSession.DefaultCategories];
+    private readonly List<ManualAnchor> manualAnchors = [];
+    private readonly List<Selection> recentSelections = [];
     private readonly List<LoadedColumn> columns = [];
+    private readonly Dictionary<string, TextBox> codeEditors = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ComboBox> rankPickers = new(StringComparer.Ordinal);
     private string? basePath;
+    private string? baseRevision;
+    private string baseKind = "synthetic";
     private string selectedPath = "";
     private Selection? selection;
     private string? golden;
     private ReviewSession? loadedSession;
+    private ulong blindSeed = unchecked((ulong)Random.Shared.NextInt64());
 
     public MainWindow()
     {
         InitializeComponent();
         FileTree.ItemsSource = files;
         FindingsList.ItemsSource = findingLabels;
+        PinsList.ItemsSource = pins;
+        RationaleBox.Text = "";
         GoldenPicker.Items.Add("None");
         GoldenPicker.SelectedIndex = 0;
     }
@@ -35,7 +46,46 @@ public partial class MainWindow : Window
         var dialog = new OpenFolderDialog { Title = "Choose the patch base directory" };
         if (dialog.ShowDialog(this) != true) return;
         basePath = dialog.FolderName;
+        baseKind = "directory";
+        baseRevision = null;
         StatusText.Text = $"Base: {basePath}";
+        ReloadPatches();
+    }
+
+    private void ChooseArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Choose a base archive",
+            Filter = "Base archives (*.tar;*.tar.gz;*.tgz;*.zip)|*.tar;*.tar.gz;*.tgz;*.zip|All files (*.*)|*.*"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        basePath = dialog.FileName;
+        baseKind = "archive";
+        baseRevision = null;
+        StatusText.Text = $"Archive base: {basePath}";
+        ReloadPatches();
+    }
+
+    private void ChooseGitRevision_Click(object sender, RoutedEventArgs e)
+    {
+        var folder = new OpenFolderDialog { Title = "Choose a local Git repository" };
+        if (folder.ShowDialog(this) != true) return;
+        var revision = TextPromptDialog.Show(this, "Git revision", "Revision or commit:");
+        if (string.IsNullOrWhiteSpace(revision)) return;
+        basePath = folder.FolderName;
+        baseRevision = revision.Trim();
+        baseKind = "gitRevision";
+        StatusText.Text = $"Git base: {basePath}@{baseRevision}";
+        ReloadPatches();
+    }
+
+    private void RebuildSyntheticBase_Click(object sender, RoutedEventArgs e)
+    {
+        if (columns.Count == 0) return;
+        basePath = null;
+        baseRevision = null;
+        baseKind = "synthetic";
         ReloadPatches();
     }
 
@@ -59,6 +109,10 @@ public partial class MainWindow : Window
         {
             columns.Clear();
             findings.Clear();
+            categories.Clear();
+            categories.AddRange(ReviewSession.DefaultCategories);
+            manualAnchors.Clear();
+            pins.Clear();
             findingLabels.Clear();
             loadedSession = null;
             var labels = new[] { "A", "B", "C", "D" };
@@ -81,10 +135,32 @@ public partial class MainWindow : Window
 
     private void ReloadPatches()
     {
-        if (basePath is null || columns.Count == 0) return;
+        if (columns.Count == 0) return;
         try
         {
-            var provider = BaseLoader.Open(basePath);
+            IFileProvider provider;
+            if (basePath is null)
+            {
+                provider = new InMemoryFileProvider(SyntheticBase.Merge(columns.Select(column => column.Patch)),
+                    "synthetic base from the patches");
+                baseKind = "synthetic";
+            }
+            else
+            {
+                try
+                {
+                    provider = BaseLoader.Open(basePath, baseRevision);
+                }
+                catch (Exception) when (!Directory.Exists(basePath) && !File.Exists(basePath))
+                {
+                    provider = new InMemoryFileProvider(SyntheticBase.Merge(columns.Select(column => column.Patch)),
+                        "synthetic base from the patches");
+                    basePath = null;
+                    baseRevision = null;
+                    baseKind = "synthetic";
+                    StatusText.Text = "The saved base is unavailable; rebuilt a synthetic base from the patches.";
+                }
+            }
             foreach (var column in columns)
                 column.Applied = ApplyEngine.Apply(column.Patch, provider);
             files.Clear();
@@ -108,6 +184,7 @@ public partial class MainWindow : Window
                 selectedPath = files[0];
                 RenderColumns();
             }
+            RenderRanking();
         }
         catch (Exception error)
         {
@@ -118,6 +195,7 @@ public partial class MainWindow : Window
     private void FileTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         selectedPath = e.NewValue as string ?? "";
+        recentSelections.Clear();
         RenderColumns();
     }
 
@@ -125,6 +203,7 @@ public partial class MainWindow : Window
     {
         ColumnsGrid.Children.Clear();
         ColumnsGrid.ColumnDefinitions.Clear();
+        codeEditors.Clear();
         selection = null;
         ReferenceText.Text = "Select lines in a column to generate a reference.";
         if (columns.Count == 0) return;
@@ -135,7 +214,9 @@ public partial class MainWindow : Window
             var panel = new DockPanel { Margin = new Thickness(4) };
             var header = new TextBlock
             {
-                Text = $"{column.Label} — {column.SourceName}",
+                Text = BlindModeToggle.IsChecked == true
+                    ? $"Patch {BlindDisplayLabel(column.Label)}"
+                    : $"{column.Label} — {column.SourceName}",
                 FontWeight = FontWeights.Bold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(3, 3, 3, 7)
@@ -143,10 +224,18 @@ public partial class MainWindow : Window
             DockPanel.SetDock(header, Dock.Top);
             panel.Children.Add(header);
 
-            var text = column.Applied?.FileAt(selectedPath)?.PostText;
+            var appliedFile = column.Applied?.FileAt(selectedPath);
+            var isGoldenDiff = golden is not null && column.Label != golden;
+            IReadOnlyList<DisplayLine> displayLines = appliedFile?.PostText is not null && !isGoldenDiff
+                ? DisplayLines.Create(appliedFile)
+                : [];
             var editor = new TextBox
             {
-                Text = RenderColumnText(column, text),
+                Text = appliedFile?.PostText is null
+                    ? RenderColumnText(column, null)
+                    : isGoldenDiff
+                        ? RenderColumnText(column, appliedFile.PostText)
+                        : RenderDisplayLines(displayLines),
                 IsReadOnly = true,
                 AcceptsReturn = true,
                 AcceptsTab = true,
@@ -158,14 +247,26 @@ public partial class MainWindow : Window
                 Background = new SolidColorBrush(Color.FromRgb(15, 24, 39)),
                 Foreground = new SolidColorBrush(Color.FromRgb(221, 231, 242)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(49, 68, 95)),
-                Tag = column,
+                Tag = new EditorContext(column, appliedFile, displayLines, isGoldenDiff),
                 Padding = new Thickness(6)
             };
             editor.SelectionChanged += CodeSelectionChanged;
+            codeEditors[column.Label] = editor;
             panel.Children.Add(editor);
             Grid.SetColumn(panel, index);
             ColumnsGrid.Children.Add(panel);
         }
+    }
+
+    private static string RenderDisplayLines(IReadOnlyList<DisplayLine> lines)
+    {
+        var baseWidth = Math.Max(4, lines.Where(line => line.BaseLine.HasValue)
+            .Select(line => line.BaseLine!.Value).DefaultIfEmpty(0).Max().ToString().Length);
+        var postWidth = Math.Max(4, lines.Where(line => line.PostLine.HasValue)
+            .Select(line => line.PostLine!.Value).DefaultIfEmpty(0).Max().ToString().Length);
+        return string.Join(Environment.NewLine, lines.Select(line =>
+            $"{(line.BaseLine?.ToString() ?? "").PadLeft(baseWidth)} | " +
+            $"{(line.PostLine?.ToString() ?? "").PadLeft(postWidth)} | {line.Text}"));
     }
 
     private string RenderColumnText(LoadedColumn column, string? text)
@@ -196,19 +297,27 @@ public partial class MainWindow : Window
 
     private void CodeSelectionChanged(object sender, RoutedEventArgs e)
     {
-        if (sender is not TextBox editor || editor.Tag is not LoadedColumn column || editor.SelectionLength == 0)
+        if (sender is not TextBox editor || editor.Tag is not EditorContext context || editor.SelectionLength == 0)
             return;
+        if (context.IsGoldenDiff || context.File?.PostText is null) return;
         var first = editor.GetLineIndexFromCharacterIndex(editor.SelectionStart) + 1;
         var last = editor.GetLineIndexFromCharacterIndex(editor.SelectionStart + editor.SelectionLength) + 1;
         if (selectedPath.Length == 0) return;
-        if (golden is not null && column.Label != golden) return;
-        var applied = column.Applied?.FileAt(selectedPath);
-        if (applied?.PostText is null) return;
         try
         {
-            var reference = ReferenceGenerator.ForSelection(applied, first, last);
-            selection = new Selection(column, applied, first, last, reference);
-            ReferenceText.Text = $"{column.Label} — {reference}";
+            var selected = context.DisplayLines.Skip(first - 1)
+                .Take(Math.Min(last, context.DisplayLines.Count) - first + 1).ToArray();
+            var reference = ReferenceGenerator.ForDisplaySelection(selected, context.File.Change.FileName);
+            var postLines = selected.Where(line => line.PostLine.HasValue).Select(line => line.PostLine!.Value).ToArray();
+            var baseLines = selected.Where(line => line.BaseLine.HasValue).Select(line => line.BaseLine!.Value).ToArray();
+            var start = postLines.Length > 0 ? postLines[0] : baseLines.FirstOrDefault();
+            var end = postLines.Length > 0 ? postLines[^1] : baseLines.LastOrDefault();
+            selection = new Selection(context.Column, context.File, start, end, reference,
+                string.Join(Environment.NewLine, selected.Select(line => line.Text)));
+            recentSelections.RemoveAll(existing => existing.Column.Label == context.Column.Label);
+            recentSelections.Add(selection);
+            if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
+            ReferenceText.Text = $"{context.Column.Label} — {reference}";
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -221,6 +330,54 @@ public partial class MainWindow : Window
         if (GoldenPicker.SelectedIndex < 0) return;
         golden = GoldenPicker.SelectedIndex == 0 ? null : columns.ElementAtOrDefault(GoldenPicker.SelectedIndex - 1)?.Label;
         RenderColumns();
+    }
+
+    private void BlindMode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsInitialized) return;
+        RenderColumns();
+        RenderRanking();
+        for (var index = 0; index < findingLabels.Count && index < findings.Count; index++)
+        {
+            var finding = findings[index];
+            findingLabels[index] =
+                $"{BlindDisplayLabel(finding.Label)} · {finding.Severity} · {finding.Title} — {finding.Reference}";
+        }
+    }
+
+    private string BlindDisplayLabel(string label)
+    {
+        if (BlindModeToggle.IsChecked != true) return label;
+        var mapping = ReviewSession.GetBlindMapping(columns.Select(column => column.Label).ToArray(), blindSeed);
+        return mapping.TryGetValue(label, out var number) ? number.ToString() : label;
+    }
+
+    private void RenderRanking()
+    {
+        RankingPanel.Children.Clear();
+        rankPickers.Clear();
+        foreach (var column in columns)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+            row.Children.Add(new TextBlock
+            {
+                Text = BlindModeToggle.IsChecked == true
+                    ? $"Patch {BlindDisplayLabel(column.Label)}"
+                    : $"{column.Label} — {column.SourceName}",
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            var picker = new ComboBox { Width = 58, Margin = new Thickness(6, 0, 0, 0) };
+            picker.Items.Add("—");
+            foreach (var number in Enumerable.Range(1, Math.Max(4, columns.Count)))
+                picker.Items.Add(number.ToString());
+            var rank = loadedSession?.Ranking.RankOf(column.Label);
+            picker.SelectedIndex = rank is null ? 0 : rank.Value;
+            DockPanel.SetDock(picker, Dock.Right);
+            row.Children.Add(picker);
+            RankingPanel.Children.Add(row);
+            rankPickers[column.Label] = picker;
+        }
     }
 
     private void SearchBox_KeyDown(object sender, KeyEventArgs e)
@@ -238,6 +395,21 @@ public partial class MainWindow : Window
             .Distinct().ToArray();
         MessageBox.Show(this, matches.Length == 0 ? "No matches." : string.Join(Environment.NewLine, matches),
             $"Search: {query}", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void ShowRawPatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (BlindModeToggle.IsChecked == true)
+        {
+            MessageBox.Show(this, "Raw patch files reveal the patch identity. Turn off blind review to inspect them.",
+                "Blind review", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var column = columns.FirstOrDefault(candidate => candidate.Patch.Files.Any(file => file.Path == selectedPath))
+            ?? columns.FirstOrDefault();
+        if (column is null) return;
+        var viewer = new RawPatchWindow($"{column.Label} — {column.SourceName}", column.PatchText) { Owner = this };
+        viewer.ShowDialog();
     }
 
     private void SaveSession_Click(object sender, RoutedEventArgs e)
@@ -283,14 +455,61 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var dialog = new FindingDialog(selection.Reference) { Owner = this };
+        var dialog = new FindingDialog(selection.Reference, categories) { Owner = this };
         if (dialog.ShowDialog() != true) return;
+        if (!categories.Contains(dialog.Category, StringComparer.Ordinal))
+            categories.Add(dialog.Category);
         findings.Add(new SessionFinding(Guid.NewGuid(), selection.Column.Label, selection.File.Path,
             new LineSpan(selection.Start, selection.End), selection.Reference, dialog.TitleText,
             dialog.Description, dialog.Category, Enum.Parse<FindingSeverity>(dialog.Severity, ignoreCase: true),
-            RequestRelevance.Unclear, false, "", [], DateTimeOffset.UtcNow));
-        findingLabels.Add($"{selection.Column.Label} · {dialog.Severity} · {dialog.TitleText} — {selection.Reference}");
+            Enum.Parse<RequestRelevance>(dialog.RequestAsks, ignoreCase: true), dialog.NotFlagged,
+            dialog.Note, [], DateTimeOffset.UtcNow));
+        findingLabels.Add($"{BlindDisplayLabel(selection.Column.Label)} · {dialog.Severity} · {dialog.TitleText} — {selection.Reference}");
         StatusText.Text = "Finding recorded for this window.";
+    }
+
+    private void PinSelection_Click(object sender, RoutedEventArgs e)
+    {
+        if (selection is null) return;
+        pins.Add(new SessionPin(Guid.NewGuid(), selection.Column.Label, selection.File.Path,
+            new LineSpan(selection.Start, selection.End), selection.Reference, selection.Snippet));
+        StatusText.Text = "Selection pinned.";
+    }
+
+    private void CorrectAnchor_Click(object sender, RoutedEventArgs e)
+    {
+        if (recentSelections.Count < 2)
+        {
+            MessageBox.Show(this, "Select a source region and its matching region in another column first.",
+                "Manual anchor", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var source = recentSelections[0];
+        var target = recentSelections[1];
+        if (source.File.Path != target.File.Path || source.Column.Label == target.Column.Label)
+        {
+            MessageBox.Show(this, "Choose regions from the same file in two different columns.",
+                "Manual anchor", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        manualAnchors.RemoveAll(anchor => anchor.SourceLabel == source.Column.Label &&
+            anchor.TargetLabel == target.Column.Label && anchor.Path == source.File.Path &&
+            anchor.SourceLines.Lower == source.Start && anchor.SourceLines.Upper == source.End);
+        manualAnchors.Add(new ManualAnchor(Guid.NewGuid(), source.Column.Label, source.File.Path,
+            new LineSpan(source.Start, source.End), target.Column.Label, new LineSpan(target.Start, target.End)));
+        StatusText.Text = $"Manual anchor saved: {source.Column.Label} → {target.Column.Label}.";
+    }
+
+    private void PinsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PinsList.SelectedItem is not SessionPin pin) return;
+        selectedPath = pin.Path;
+        RenderColumns();
+        if (!codeEditors.TryGetValue(pin.Label, out var editor) || editor.Tag is not EditorContext context)
+            return;
+        var row = context.DisplayLines.ToList().FindIndex(line => line.PostLine == pin.Lines.Lower ||
+            line.BaseLine == pin.Lines.Lower);
+        if (row >= 0) editor.ScrollToLine(row);
     }
 
     private void OpenSession_Click(object sender, RoutedEventArgs e)
@@ -303,17 +522,28 @@ public partial class MainWindow : Window
             columns.Clear();
             findings.Clear();
             findingLabels.Clear();
+            pins.Clear();
+            manualAnchors.Clear();
             loadedSession = contents.Session;
+            blindSeed = contents.Session.Blind.Seed;
+            BlindModeToggle.IsChecked = contents.Session.Blind.IsOn;
             RequestBox.Text = contents.Session.Request;
+            RationaleBox.Text = contents.Session.Ranking.Rationale;
+            categories.Clear();
+            categories.AddRange(contents.Session.Categories);
             foreach (var column in contents.Session.Columns)
             {
                 var text = contents.PatchTexts[column.Label];
                 columns.Add(new LoadedColumn(column.Label, column.SourceName, text, UnifiedDiffParser.Parse(text)));
             }
             findings.AddRange(contents.Session.Findings);
+            foreach (var pin in contents.Session.Pins) pins.Add(pin);
+            manualAnchors.AddRange(contents.Session.ManualAnchors);
             foreach (var finding in findings)
-                findingLabels.Add($"{finding.Label} · {finding.Severity} · {finding.Title} — {finding.Reference}");
+                findingLabels.Add($"{BlindDisplayLabel(finding.Label)} · {finding.Severity} · {finding.Title} — {finding.Reference}");
             basePath = contents.Session.Base.Path;
+            baseRevision = contents.Session.Base.Revision;
+            baseKind = contents.Session.Base.Kind;
             golden = contents.Session.Golden;
             ReloadPatches();
             StatusText.Text = $"Session loaded: {dialog.FolderName}";
@@ -327,16 +557,21 @@ public partial class MainWindow : Window
     private ReviewSession BuildSession()
     {
         var old = loadedSession;
-        var baseInfo = old?.Base ?? new SessionBase(basePath is null ? "synthetic" : "directory", Path: basePath);
+        var baseInfo = new SessionBase(baseKind, Path: basePath,
+            Revision: baseRevision, Commit: old?.Base.Commit, Label: old?.Base.Label);
         return new ReviewSession(ReviewSession.CurrentVersion, old?.Name ?? "Patch review", RequestBox.Text,
             baseInfo,
             columns.Select(column => new SessionColumn(column.Label, column.SourceName, "",
                 old?.Columns.FirstOrDefault(existing => existing.Label == column.Label)?.IsHidden ?? false,
                 old?.Columns.FirstOrDefault(existing => existing.Label == column.Label)?.IsRead ?? false)).ToArray(),
-            golden, old?.Categories ?? ReviewSession.DefaultCategories, findings.ToArray(),
-            old?.Ranking ?? new SessionRanking(new Dictionary<string, int>(), ""),
-            old?.Pins ?? [], old?.ManualAnchors ?? [],
-            old?.Blind ?? new BlindMode(false, 0), old?.Created ?? DateTimeOffset.UtcNow);
+            golden, categories.ToArray(), findings.ToArray(),
+            new SessionRanking(rankPickers.ToDictionary(pair => pair.Key,
+                pair => int.TryParse(pair.Value.SelectedItem as string, out var rank) ? rank : (int?)null)
+                .Where(pair => pair.Value.HasValue)
+                .ToDictionary(pair => pair.Key, pair => pair.Value!.Value, StringComparer.Ordinal),
+                RationaleBox.Text),
+            pins.ToArray(), manualAnchors.ToArray(),
+            new BlindMode(BlindModeToggle.IsChecked == true, blindSeed), old?.Created ?? DateTimeOffset.UtcNow);
     }
 
     private sealed class LoadedColumn(string label, string sourceName, string patchText, Patch patch)
@@ -348,5 +583,68 @@ public partial class MainWindow : Window
         public AppliedPatch? Applied { get; set; }
     }
 
-    private sealed record Selection(LoadedColumn Column, AppliedFile File, int Start, int End, string Reference);
+    private sealed record Selection(
+        LoadedColumn Column, AppliedFile File, int Start, int End, string Reference, string Snippet);
+    private sealed record EditorContext(LoadedColumn Column, AppliedFile? File,
+        IReadOnlyList<DisplayLine> DisplayLines, bool IsGoldenDiff);
+}
+
+internal sealed class TextPromptDialog : Window
+{
+    private readonly TextBox input = new() { MinWidth = 320, Margin = new Thickness(0, 8, 0, 12) };
+
+    private TextPromptDialog(string title, string prompt)
+    {
+        Title = title;
+        SizeToContent = SizeToContent.WidthAndHeight;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ResizeMode = ResizeMode.NoResize;
+        Background = new SolidColorBrush(Color.FromRgb(24, 38, 59));
+        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new TextBlock { Text = prompt });
+        panel.Children.Add(input);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var accept = new Button { Content = "Use revision", IsDefault = true };
+        accept.Click += (_, _) => DialogResult = true;
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(accept);
+        panel.Children.Add(buttons);
+        Content = panel;
+        Loaded += (_, _) => input.Focus();
+    }
+
+    public static string? Show(Window owner, string title, string prompt)
+    {
+        var dialog = new TextPromptDialog(title, prompt) { Owner = owner };
+        return dialog.ShowDialog() == true ? dialog.input.Text : null;
+    }
+}
+
+internal sealed class RawPatchWindow : Window
+{
+    public RawPatchWindow(string title, string patchText)
+    {
+        Title = $"Raw patch — {title}";
+        Width = 1000;
+        Height = 750;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = new SolidColorBrush(Color.FromRgb(16, 26, 43));
+        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        Content = new TextBox
+        {
+            Text = patchText,
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            AcceptsTab = true,
+            TextWrapping = TextWrapping.NoWrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontFamily = new FontFamily("Consolas"),
+            Background = new SolidColorBrush(Color.FromRgb(15, 24, 39)),
+            Foreground = new SolidColorBrush(Color.FromRgb(221, 231, 242)),
+            Padding = new Thickness(8)
+        };
+    }
 }
