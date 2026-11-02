@@ -9,6 +9,7 @@ var tests = new (string Name, Action Run)[]
     ("every fixture hunk agrees with its declared line counts", FixtureTests.HunkCountsAgree),
     ("rename fixture retains old path, new path, and similarity", FixtureTests.RenameMetadataRemainsPresent),
     ("strict parser parses every fixture", FixtureTests.ParserParsesEveryFixture),
+    ("format-patch mail metadata and body are preserved", FixtureTests.MailHeaderPreservesBody),
     ("strict parser reports malformed hunk line", FixtureTests.MalformedHunkReportsItsLine),
     ("directory bases read files without escaping their root", BaseLoaderTests.DirectoryReadsAndContainsPaths),
     ("zip bases strip one common top-level folder", BaseLoaderTests.ZipStripsCommonPrefix),
@@ -171,6 +172,14 @@ static class FixtureTests
         Assert.Equal("tests/billing/test_ledger.py", rename.OldPath, "rename old path");
         Assert.Equal("tests/test_ledger.py", rename.NewPath, "rename new path");
         Assert.Equal(95, rename.Similarity, "rename similarity");
+    }
+
+    public static void MailHeaderPreservesBody()
+    {
+        var patch = UnifiedDiffParser.ParseFile(Path.Combine(FindRepositoryRoot(), "mail.patch"));
+        Assert.Equal("Fixture Author <fixtures@example.invalid>", patch.MailHeader?.From, "mail author");
+        Assert.Equal("[PATCH] Cap tile zoom at 18", patch.MailHeader?.Subject, "mail subject");
+        Assert.Equal("Deeper tiles are never rendered; refuse them early.", patch.MailHeader?.Body, "mail body");
     }
 
     public static void MalformedHunkReportsItsLine()

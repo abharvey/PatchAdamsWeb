@@ -101,11 +101,12 @@ public static class UnifiedDiffParser
                 index++;
             }
 
+            var body = new List<string>();
             while (!AtEnd && !Current.StartsWith("diff --git ", StringComparison.Ordinal) && Current != "---")
-                index++;
+                body.Add(lines[index++]);
             if (!AtEnd && Current == "---")
                 index++;
-            return new MailHeader(from, subject, date, "");
+            return new MailHeader(from, subject, date, string.Join('\n', body).Trim());
         }
 
         private FileChange ParseFile()
@@ -167,7 +168,10 @@ public static class UnifiedDiffParser
                 {
                     var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length >= 3)
-                        oldMode = newMode ?? parts[2];
+                    {
+                        oldMode ??= parts[2];
+                        newMode ??= parts[2];
+                    }
                 }
                 else if (line.StartsWith("Binary files ", StringComparison.Ordinal) || line == "GIT binary patch")
                 {
