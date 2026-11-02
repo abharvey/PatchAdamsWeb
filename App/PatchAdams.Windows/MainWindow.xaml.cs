@@ -20,7 +20,7 @@ public partial class MainWindow : Window
     private readonly List<ManualAnchor> manualAnchors = [];
     private readonly List<Selection> recentSelections = [];
     private readonly List<LoadedColumn> columns = [];
-    private readonly Dictionary<string, TextBox> codeEditors = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CodeEditor> codeEditors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ComboBox> rankPickers = new(StringComparer.Ordinal);
     private bool synchronizingScroll;
     private double fontSize = 13;
@@ -245,27 +245,18 @@ public partial class MainWindow : Window
             IReadOnlyList<DisplayLine> displayLines = appliedFile?.PostText is not null && !isGoldenDiff
                 ? DisplayLines.Create(appliedFile)
                 : [];
-            var editor = new TextBox
+            var renderedText = appliedFile?.PostText is null
+                ? RenderColumnText(column, null)
+                : isGoldenDiff
+                    ? RenderColumnText(column, appliedFile.PostText)
+                    : RenderDisplayLines(displayLines);
+            var editor = new CodeEditor
             {
-                Text = appliedFile?.PostText is null
-                    ? RenderColumnText(column, null)
-                    : isGoldenDiff
-                        ? RenderColumnText(column, appliedFile.PostText)
-                        : RenderDisplayLines(displayLines),
-                IsReadOnly = true,
-                AcceptsReturn = true,
-                AcceptsTab = true,
-                TextWrapping = TextWrapping.NoWrap,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                FontFamily = new FontFamily("Consolas"),
                 FontSize = fontSize,
-                Background = new SolidColorBrush(Color.FromRgb(15, 24, 39)),
-                Foreground = new SolidColorBrush(Color.FromRgb(221, 231, 242)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(49, 68, 95)),
                 Tag = new EditorContext(column, appliedFile, displayLines, isGoldenDiff),
-                Padding = new Thickness(6)
             };
+            editor.SetCode(DiffEngine.SplitLines(renderedText), displayLines,
+                Path.GetExtension(selectedPath).ToLowerInvariant(), !isGoldenDiff);
             editor.SelectionChanged += CodeSelectionChanged;
             editor.Loaded += (_, _) =>
             {
@@ -406,11 +397,13 @@ public partial class MainWindow : Window
 
     private void CodeSelectionChanged(object sender, RoutedEventArgs e)
     {
-        if (sender is not TextBox editor || editor.Tag is not EditorContext context || editor.SelectionLength == 0)
+        if (sender is not CodeEditor editor || editor.Tag is not EditorContext context)
             return;
+        var selectedRows = editor.SelectedRows();
+        if (selectedRows is null) return;
         if (context.IsGoldenDiff || context.File?.PostText is null) return;
-        var first = editor.GetLineIndexFromCharacterIndex(editor.SelectionStart) + 1;
-        var last = editor.GetLineIndexFromCharacterIndex(editor.SelectionStart + editor.SelectionLength) + 1;
+        var first = selectedRows.Value.Start + 1;
+        var last = selectedRows.Value.End + 1;
         if (selectedPath.Length == 0) return;
         try
         {
@@ -471,16 +464,14 @@ public partial class MainWindow : Window
                 ? rows.FindIndex(line => line.BaseLine.HasValue && line.BaseLine.Value >= baseLine)
                 : -1;
         if (row < 0) return;
-        editor.ScrollToLine(row);
+        editor.ScrollToRow(row);
         if (entry.Result.StartLine is int start && entry.Result.EndLine is int end)
         {
             var startRow = rows.FindIndex(line => line.PostLine == start);
             var endRow = rows.FindIndex(line => line.PostLine == end);
             if (startRow >= 0 && endRow >= startRow)
             {
-                var startOffset = editor.GetCharacterIndexFromLineIndex(startRow);
-                var endOffset = editor.GetCharacterIndexFromLineIndex(endRow) + editor.GetLineLength(endRow);
-                editor.Select(startOffset, Math.Max(0, endOffset - startOffset));
+                editor.SelectRows(startRow, endRow);
             }
         }
     }
@@ -492,8 +483,8 @@ public partial class MainWindow : Window
             sourceContext.DisplayLines.Count == 0)
             return;
 
-        var firstVisible = source.TemplatedParent is TextBox sourceEditor
-            ? sourceEditor.GetFirstVisibleLineIndex()
+        var firstVisible = source.TemplatedParent is CodeEditor sourceEditor
+            ? sourceEditor.FirstVisibleRow()
             : (int)e.VerticalOffset;
         var sourceRow = Math.Clamp(firstVisible, 0, sourceContext.DisplayLines.Count - 1);
         var baseLine = sourceContext.DisplayLines[sourceRow].BaseLine ??
@@ -511,13 +502,13 @@ public partial class MainWindow : Window
                     continue;
                 if (target.Tag is not EditorContext targetContext || targetContext.DisplayLines.Count == 0)
                 {
-                    editor.ScrollToLine(sourceRow);
+                    editor.ScrollToRow(sourceRow);
                     continue;
                 }
                 var targetRow = targetContext.DisplayLines.ToList()
                     .FindIndex(line => line.BaseLine == baseLine);
                 if (targetRow >= 0)
-                    editor.ScrollToLine(targetRow);
+                    editor.ScrollToRow(targetRow);
             }
         }
         finally
@@ -790,7 +781,7 @@ public partial class MainWindow : Window
             return;
         var line = context.DisplayLines.ToList().FindIndex(displayLine =>
             displayLine.PostLine == finding.Lines.Lower || displayLine.BaseLine == finding.Lines.Lower);
-        if (line >= 0) editor.ScrollToLine(line);
+        if (line >= 0) editor.ScrollToRow(line);
     }
 
     private void CorrectAnchor_Click(object sender, RoutedEventArgs e)
@@ -826,7 +817,7 @@ public partial class MainWindow : Window
             return;
         var row = context.DisplayLines.ToList().FindIndex(line => line.PostLine == pin.Lines.Lower ||
             line.BaseLine == pin.Lines.Lower);
-        if (row >= 0) editor.ScrollToLine(row);
+        if (row >= 0) editor.ScrollToRow(row);
     }
 
     private void OpenSession_Click(object sender, RoutedEventArgs e)

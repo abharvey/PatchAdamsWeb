@@ -27,6 +27,7 @@ var tests = new (string Name, Action Run)[]
     ("Myers diff replays deterministic randomized inputs", DiffEngineTests.MyersReplaysRandomizedInputs),
     ("patience diff anchors unique lines around reordered blocks", DiffEngineTests.PatienceDiffRetainsMovedAnchors),
     ("token similarity ignores whitespace", DiffEngineTests.TokenSimilarityIgnoresWhitespace),
+    ("syntax highlighter identifies code tokens by extension", DiffEngineTests.SyntaxTokensAreClassified),
     ("alignment classifies exact, modified, moved, and absent regions", AlignmentTests.ClassifiesRegions),
     ("manual anchor correction takes precedence over automatic location", AlignmentTests.ManualAnchorWins),
     ("session packages round-trip patches and review state", SessionTests.PackageRoundTripsState),
@@ -476,6 +477,24 @@ static class DiffEngineTests
         var diff = DiffEngine.Tokens("call(value)", "call( value )");
         Assert.Equal(1d, diff.Similarity, "whitespace normalized similarity");
         Assert.Equal("call( value )", string.Concat(diff.B), "token round trip");
+    }
+
+    public static void SyntaxTokensAreClassified()
+    {
+        Assert.Equal(".go", SyntaxHighlighter.LanguageForPath("src/main.go"), "Go language");
+        var line = "func build() string { return \"ok\" // note";
+        var tokens = SyntaxHighlighter.TokenizeLine(line, ".go");
+        string Text(SyntaxToken token) => line.Substring(token.Start, token.Length);
+        Assert.True(tokens.Any(token => token.Kind == SyntaxTokenKind.Keyword && Text(token) == "func"),
+            "keyword token");
+        Assert.True(tokens.Any(token => token.Kind == SyntaxTokenKind.Function && Text(token) == "build"),
+            "function token");
+        Assert.True(tokens.Any(token => token.Kind == SyntaxTokenKind.String && Text(token) == "\"ok\""),
+            "string token");
+        Assert.True(tokens.Any(token => token.Kind == SyntaxTokenKind.Comment && Text(token) == "// note"),
+            "comment token");
+        Assert.Equal(0, SyntaxHighlighter.TokenizeLine("plain text", ".txt").Count,
+            "plain text remains uncolored");
     }
 }
 
