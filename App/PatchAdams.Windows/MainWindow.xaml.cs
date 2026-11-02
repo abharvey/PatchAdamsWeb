@@ -386,14 +386,21 @@ public partial class MainWindow : Window
             var canRenderFile = appliedFile is not null &&
                 appliedFile.Status.Kind is not ApplyStatusKind.Failed and not ApplyStatusKind.Binary &&
                 (appliedFile.PostText is not null || appliedFile.Change.Kind == FileChangeKind.Deleted);
+            var isLargeFile = appliedFile is not null &&
+                Math.Max(appliedFile.LineMap.PostLineCount, appliedFile.LineMap.BaseLineCount) > 50_000;
             IReadOnlyList<DisplayLine> displayLines = canRenderFile && !isGoldenDiff
-                ? DisplayLines.Create(appliedFile!, includeRemoved: ShowRemovedToggle.IsChecked == true)
+                ? isLargeFile
+                    ? DisplayLines.CreateHunksOnly(appliedFile!,
+                        includeRemoved: ShowRemovedToggle.IsChecked == true)
+                    : DisplayLines.Create(appliedFile!, includeRemoved: ShowRemovedToggle.IsChecked == true)
                 : [];
             var renderedText = !canRenderFile
                 ? RenderColumnText(column, null)
                 : isGoldenDiff
-                    ? RenderColumnText(column, appliedFile?.PostText)
+                    ? RenderColumnText(column, appliedFile?.PostText, isLargeFile)
                     : RenderDisplayLines(displayLines);
+            if (isLargeFile)
+                StatusText.Text = "Large file reduced to patch hunks with surrounding context.";
             var editor = new CodeEditor
             {
                 FontSize = fontSize,
@@ -515,26 +522,46 @@ public partial class MainWindow : Window
             $"{(line.PostLine?.ToString() ?? "").PadLeft(postWidth)} | {line.Text}"));
     }
 
-    private string RenderColumnText(LoadedColumn column, string? text)
+    private string RenderColumnText(LoadedColumn column, string? text, bool compactLargeFiles = false)
     {
         if (text is null)
         {
             var file = column.Applied?.FileAt(selectedPath);
+            if (golden is not null && column.Label != golden &&
+                file?.Change.Kind == FileChangeKind.Deleted)
+                return RenderGoldenDiff(column, "", compactLargeFiles);
             return file?.Status.Kind == ApplyStatusKind.Failed
                 ? $"[Failed to apply]\n{file.Status.Message}\n\nRaw patch hunks remain available in the source file."
                 : file?.Status.Kind == ApplyStatusKind.Binary ? "[Binary file change]" : "[File absent in this patch]";
         }
         if (golden is null || column.Label == golden)
             return text;
-        var goldenText = columns.FirstOrDefault(item => item.Label == golden)?.Applied?.FileAt(selectedPath)?.PostText ?? "";
+        return RenderGoldenDiff(column, text, compactLargeFiles);
+    }
+
+    private string RenderGoldenDiff(LoadedColumn column, string text, bool compactLargeFiles)
+    {
+        var goldenText = ColumnFile(columns.FirstOrDefault(item => item.Label == golden)!, selectedPath)?.PostText ?? "";
         var diff = DiffEngine.Lines(goldenText, text);
+        var goldenLines = DiffEngine.SplitLines(goldenText);
         var result = new List<string>();
         foreach (var edit in diff.Edits)
         {
             if (edit.Kind == EditKind.Equal)
-                result.AddRange(DiffEngine.SplitLines(goldenText).Skip(edit.AStart).Take(edit.ALength).Select(line => "  " + line));
+            {
+                if (compactLargeFiles && edit.ALength > 6)
+                {
+                    result.AddRange(goldenLines.Skip(edit.AStart).Take(3).Select(line => "  " + line));
+                    result.Add($"… {edit.ALength - 6} unchanged lines outside diff hunks hidden …");
+                    result.AddRange(goldenLines.Skip(edit.AStart + edit.ALength - 3).Take(3).Select(line => "  " + line));
+                }
+                else
+                {
+                    result.AddRange(goldenLines.Skip(edit.AStart).Take(edit.ALength).Select(line => "  " + line));
+                }
+            }
             else if (edit.Kind == EditKind.Delete)
-                result.AddRange(DiffEngine.SplitLines(goldenText).Skip(edit.AStart).Take(edit.ALength).Select(line => "- " + line));
+                result.AddRange(goldenLines.Skip(edit.AStart).Take(edit.ALength).Select(line => "- " + line));
             else
                 result.AddRange(DiffEngine.SplitLines(text).Skip(edit.BStart).Take(edit.BLength).Select(line => "+ " + line));
         }
@@ -571,7 +598,7 @@ public partial class MainWindow : Window
             if (postLines.Length > 0)
                 UpdateComparisons(context.Column, context.File, postLines[0], postLines[^1]);
         }
-        catch (ArgumentOutOfRangeException)
+        catch (ArgumentException)
         {
             selection = null;
         }

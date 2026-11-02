@@ -37,6 +37,7 @@ var tests = new (string Name, Action Run)[]
     ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),
     ("display lines retain dual gutters and removed-side references", SessionTests.DisplayLinesAndRemovedReference),
     ("deleted files still display their removed base lines", SessionTests.DeletedFileDisplaysBaseLines),
+    ("large files collapse to patch hunks with context", SessionTests.HunksOnlyDisplayCollapsesContext),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -386,6 +387,28 @@ static class SessionTests
             "deleted display base lines");
         Assert.True(DisplayLines.Create(file).All(line => line.Kind == DisplayLineKind.Removed),
             "deleted display rows");
+    }
+
+    public static void HunksOnlyDisplayCollapsesContext()
+    {
+        using var baseDirectory = new TemporaryDirectory();
+        var lines = Enumerable.Range(1, 100).Select(line => $"line-{line}").ToArray();
+        File.WriteAllText(Path.Combine(baseDirectory.Path, "large.txt"), string.Join('\n', lines) + "\n");
+        var patch = UnifiedDiffParser.Parse("""
+            diff --git a/large.txt b/large.txt
+            --- a/large.txt
+            +++ b/large.txt
+            @@ -50 +50 @@
+            -line-50
+            +changed-line
+            """);
+        var file = ApplyEngine.Apply(patch, new DirectoryFileProvider(baseDirectory.Path)).Files.Single();
+        var full = DisplayLines.Create(file);
+        var reduced = DisplayLines.CreateHunksOnly(file, contextRows: 1);
+        Assert.True(reduced.Count < full.Count / 4, "large unchanged context is reduced");
+        Assert.True(reduced.Any(line => line.Text == "changed-line"), "changed line is retained");
+        Assert.True(reduced.Any(line => line.Kind == DisplayLineKind.CollapsedContext),
+            "hidden unchanged ranges are visible as markers");
     }
 
     private static ReviewSession CreateSession(bool blind)
