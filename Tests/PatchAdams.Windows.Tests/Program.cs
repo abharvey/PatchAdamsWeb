@@ -17,6 +17,10 @@ var tests = new (string Name, Action Run)[]
     ("patches apply in memory with line maps and status reports", ApplyEngineTests.ApplyIsInMemoryAndMapsLines),
     ("context fuzz is reported without writing the base", ApplyEngineTests.FuzzIsReported),
     ("failed hunks keep raw patch data and no post text", ApplyEngineTests.FailedHunkKeepsPatch),
+    ("Myers diff is minimal and replays to the target", DiffEngineTests.MyersDiffIsMinimalAndReplays),
+    ("Myers diff replays deterministic randomized inputs", DiffEngineTests.MyersReplaysRandomizedInputs),
+    ("patience diff anchors unique lines around reordered blocks", DiffEngineTests.PatienceDiffRetainsMovedAnchors),
+    ("token similarity ignores whitespace", DiffEngineTests.TokenSimilarityIgnoresWhitespace),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -198,6 +202,62 @@ static class FixtureTests
         }
 
         throw new DirectoryNotFoundException("Could not locate Fixtures/patches from the test output directory.");
+    }
+}
+
+static class DiffEngineTests
+{
+    public static void MyersDiffIsMinimalAndReplays()
+    {
+        var before = new[] { "alpha", "beta", "gamma" };
+        var after = new[] { "beta", "gamma", "delta" };
+        var diff = DiffEngine.Lines(before, after, DiffAlgorithm.Myers);
+        Assert.Equal(1, diff.DeletedCount, "minimal deleted line count");
+        Assert.Equal(1, diff.InsertedCount, "minimal inserted line count");
+        Assert.SequenceEqual(after, diff.Apply(before, after), "diff replay");
+
+        var same = DiffEngine.Lines(before, before, DiffAlgorithm.Myers);
+        Assert.True(same.IsIdentical, "identical inputs");
+    }
+
+    public static void PatienceDiffRetainsMovedAnchors()
+    {
+        var before = new[] { "first", "unique A", "middle", "unique B", "last" };
+        var after = new[] { "first", "unique B", "middle", "unique A", "last" };
+        var diff = DiffEngine.Lines(before, after, DiffAlgorithm.Patience);
+        Assert.SequenceEqual(after, diff.Apply(before, after), "patience replay");
+        Assert.True(diff.Edits.Any(edit => edit.Kind == EditKind.Equal &&
+            before.Skip(edit.AStart).Take(edit.ALength).Any(line => line is "unique A" or "unique B")),
+            "unique moved-block anchor");
+    }
+
+    public static void MyersReplaysRandomizedInputs()
+    {
+        var random = new Random(83);
+        for (var sample = 0; sample < 200; sample++)
+        {
+            var before = Enumerable.Range(0, random.Next(0, 24))
+                .Select(_ => $"v{random.Next(0, 8)}").ToArray();
+            var after = Enumerable.Range(0, random.Next(0, 24))
+                .Select(_ => $"v{random.Next(0, 8)}").ToArray();
+            try
+            {
+                var diff = DiffEngine.Lines(before, after, DiffAlgorithm.Myers);
+                Assert.SequenceEqual(after, diff.Apply(before, after), $"random diff replay #{sample}");
+            }
+            catch (Exception error)
+            {
+                throw new InvalidOperationException(
+                    $"sample {sample}: [{string.Join(",", before)}] -> [{string.Join(",", after)}]", error);
+            }
+        }
+    }
+
+    public static void TokenSimilarityIgnoresWhitespace()
+    {
+        var diff = DiffEngine.Tokens("call(value)", "call( value )");
+        Assert.Equal(1d, diff.Similarity, "whitespace normalized similarity");
+        Assert.Equal("call( value )", string.Concat(diff.B), "token round trip");
     }
 }
 
@@ -411,5 +471,11 @@ static class Assert
             return;
         }
         throw new InvalidOperationException($"{context}: expected {typeof(TException).Name}.");
+    }
+
+    public static void True(bool condition, string context)
+    {
+        if (!condition)
+            throw new InvalidOperationException(context);
     }
 }
