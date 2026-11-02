@@ -1,87 +1,21 @@
-# Patch Adams — roadmap
+# Windows rewrite roadmap
 
-Forward direction as sized milestones. Sizes: S ≤ 1 session,
-M = 1–2, L = 2–4. Each phase is gated by its checklist passing on
-the fixture set (`Fixtures/patches/fixture*.patch`), not by a date.
-Phases and gates come from `docs/spec.md`, "Delivery plan".
+The C# Windows rewrite has replaced the former native implementation in this
+fork. The behavioral baseline is
+[docs/windows-feature-set.md](docs/windows-feature-set.md).
 
-- [x] **M0** (S) — Factory scaffold: SwiftPM engines + app shell,
-  `PatchModel` parser, 19 fixtures parse, `make test` green.
-  2026-10-14.
-- [x] **M1** (L) — Phase 1, engines: `BaseLoader`, `ApplyEngine`,
-  `DiffEngine`, CLI harness, unit tests. 2026-10-14.
-  - [x] Every fixture patch parses, including renames, binary stubs,
-    mode changes.
-  - [x] Every fixture patch applies in memory against its base with a
-    per-file report. (Synthetic bases, D4; every file `clean`.)
-  - [x] Line diff output matches `git diff --no-index` for 20 sampled
-    file pairs. (Changed-line counts equal `--minimal`; hunk sliders
-    may differ.)
-  - [x] Line maps round-trip: post line → base line → post line for
-    every unchanged line.
-- [x] **M2** (L) — Phase 2, viewer: window, file tree, 2–4 columns,
-  full-file rendering, dual gutters, scroll lock, labels with patch
-  file names, request panel. 2026-10-14.
-  - [x] Open a 4-patch session and read every touched file in every
-    column without leaving the window. (kettle-1…4 on a merged
-    synthetic base; `PatchAdams --demo`.)
-  - [x] Copy a reference from a selection and get `filename
-    Lstart:Lend` with the correct post-patch lines. (`--select A:10-20`
-    → `brew_task.go L55:L72` on the pasteboard.)
-  - [x] Scroll lock keeps the same function in view across columns
-    through a 2,000-line file. (Passed 2026-10-14 on the first fixture
-    set, since replaced (#13); on the invented set all four columns land
-    on the same base line.)
-  - [x] Each column header shows its patch file name; tab-mapping
-    confusion is impossible.
-- [x] **M3** (L) — Phase 3, comparison: selection alignment, status
-  badges, absent notices with nearest-hunk links, comparison panel,
-  golden patch mode, cross-column search. 2026-10-14.
-  - [x] Select the `strip_prefix("glow-")` block in the lantern patch
-    that has it; marked `absent` in the other two with a link to their
-    nearest hunk in `main.rs`. (`--select C:73-75` on lantern-1…3:
-    A absent, nearest `main.rs L435:L441`; B absent, nearest
-    `main.rs L437:L446`.)
-  - [x] Select `fn glow_schema` in any lantern column; located as
-    `modified` or `exact` in the others. (`--select A:5-12`: B
-    `modified` 0.83, C `modified` 0.94, both via identifier `glow_schema`.)
-  - [x] Set each of four columns as golden in turn; every switch
-    renders in under 1 second. (`--golden A|B|C|D` on kettle-1…4:
-    60 column-files in 24–30 ms each.)
-  - [x] Search `tempFor(k)` across the four Go patches; grouped
-    results with 60 or more hits in the patch that has them.
-    (kettle-1…4: 64 hits in one file, all in column B.)
-- [x] **M4** (L) — Phase 4, review workflow: findings with categories
-  and severity, ranking with ties, Markdown and JSON export, session
-  save/load, blind mode, manual anchor correction. 2026-10-14.
-  - [x] Review the four Go patches end to end in the app and export
-    Markdown. (`--demo` + four `--finding` regions + `--rank` +
-    `--export-md`: 4 findings, 24-line write-up.)
-  - [x] The export reproduces the ranking write-up with no hand-typed
-    references. (Every reference in the export is one the engine
-    generated from a region; `testEveryReferenceInTheExportComesFromAFinding`.)
-  - [x] Close and reopen the session; findings, pins, golden choice,
-    and column order are restored. (`--save` then `--open --state`:
-    4 findings, 1 pin, golden B, order A B C D, ranks and rationale.)
-  - [x] One review in blind mode; the export reveals the mapping only
-    at the end. (`--blind`: seeded order C→1 D→2 B→3 A→4; the body
-    names patches 1–4, `## Mapping` is the last section.)
-- [x] **M5** (M) — Distribution: notarized direct download, DMG,
-  Settings (font, size), first-run prompt for blind mode. 2026-10-14,
-  with one owner task left (below).
-  - [x] `make dmg` builds a hardened-runtime Release app and a
-    compressed DMG with an Applications link (2.3 MB); the app on the
-    mounted image launches. `make notarize` submits with the App Store
-    Connect key and staples.
-  - [ ] **Owner:** create a *Developer ID Application* certificate (the
-    account holder only; this Mac has Apple Development and Apple
-    Distribution identities, which cannot be notarized), then
-    `make dmg notarize SIGN='Developer ID Application: river.io llc (U3Z59VXPUB)'`.
-  - [x] Settings: monospace font and size, system monospace 12 pt by
-    default; every column re-renders on change (Menlo 18 pt checked on
-    screen).
-  - [x] One-time blind-mode prompt on a new session; Settings can bring
-    it back.
-  - [x] `git` detected at launch and its version shown on the welcome
-    view (git 2.54.0 here); without git the Git Revision base is off and
-    directory and archive bases still work.
+- [x] Feature set documented before the C# test baseline.
+- [x] Fixture-backed parser, base loading, in-memory apply, line maps,
+  synthetic bases, diffing, alignment, and session model.
+- [x] Windows-native WPF viewer with file tree, visible/reorderable columns,
+  golden comparison, generated references, search, findings, pins, manual
+  anchors, ranking, and blind mode.
+- [x] Session save/load and Markdown/JSON export.
+- [x] Windows publish, per-user install, and uninstall scripts.
+- [x] Dependency-free C# fixture test runner.
+- [ ] Interactive Windows smoke review of the full session workflow.
+- [ ] Final source/documentation audit, including confirmation that no
+  obsolete platform code remains.
+
+Build and test gates are in [FACTORY.md](FACTORY.md); installation details are
+in [README-Windows.md](README-Windows.md).

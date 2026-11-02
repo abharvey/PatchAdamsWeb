@@ -13,8 +13,7 @@ tests of the current engines and implementation tests for the Windows app.
   the code under review.
 - One reviewer compares two to four candidate unified-diff patches against a
   shared base and records a ranking and findings.
-- The macOS app may remain alongside the Windows app during migration. The
-  completed fork is not required to retain Swift or macOS-specific code.
+- The Windows application is the sole application target in this fork.
 
 ## Loading and applying patches
 
