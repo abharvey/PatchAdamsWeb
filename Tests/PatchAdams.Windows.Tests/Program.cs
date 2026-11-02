@@ -472,6 +472,14 @@ static class DiffEngineTests
                     $"sample {sample}: [{string.Join(",", before)}] -> [{string.Join(",", after)}]", error);
             }
         }
+
+        var disjointBefore = Enumerable.Range(0, 512).Select(index => $"left-{index}").ToArray();
+        var disjointAfter = Enumerable.Range(0, 512).Select(index => $"right-{index}").ToArray();
+        var disjoint = DiffEngine.Lines(disjointBefore, disjointAfter, DiffAlgorithm.Myers);
+        Assert.SequenceEqual(disjointAfter, disjoint.Apply(disjointBefore, disjointAfter),
+            "large disjoint diff replay");
+        Assert.Equal(512, disjoint.DeletedCount, "large disjoint delete count");
+        Assert.Equal(512, disjoint.InsertedCount, "large disjoint insert count");
     }
 
     public static void TokenSimilarityIgnoresWhitespace()

@@ -94,6 +94,16 @@ public static class DiffEngine
     private static void Myers<T>(IReadOnlyList<T> a, int alo, int ahi, IReadOnlyList<T> b, int blo, int bhi,
         EditBuilder sink) where T : notnull
     {
+        var scratch = new MyersScratch(a.Count + b.Count + 3);
+        MyersRange(a, alo, ahi, b, blo, bhi, sink, scratch);
+    }
+
+    private static void MyersRange<T>(
+        IReadOnlyList<T> a, int alo, int ahi,
+        IReadOnlyList<T> b, int blo, int bhi,
+        EditBuilder sink,
+        MyersScratch scratch) where T : notnull
+    {
         var originalAhi = ahi;
         var originalBhi = bhi;
         while (alo < ahi && blo < bhi && EqualityComparer<T>.Default.Equals(a[alo], b[blo]))
@@ -119,81 +129,86 @@ public static class DiffEngine
             return;
         }
 
+        var (x, y, u, v) = MiddleSnake(a, alo, ahi, b, blo, bhi, scratch);
+        if (x == u && y == v && (x == 0 || y == 0) &&
+            (u == ahi - alo || v == bhi - blo))
+        {
+            for (var i = alo; i < ahi; i++) sink.Delete(i);
+            for (var j = blo; j < bhi; j++) sink.Insert(j);
+            AppendSuffix(a, b, ahi, bhi, originalAhi, originalBhi, sink);
+            return;
+        }
+        for (var offset = 0; offset < u - x; offset++)
+            sink.Equal(alo + x + offset, blo + y + offset);
+        MyersRange(a, alo, alo + x, b, blo, blo + y, sink, scratch);
+        MyersRange(a, alo + u, ahi, b, blo + v, bhi, sink, scratch);
+        AppendSuffix(a, b, ahi, bhi, originalAhi, originalBhi, sink);
+    }
+
+    private static (int X, int Y, int U, int V) MiddleSnake<T>(
+        IReadOnlyList<T> a, int alo, int ahi,
+        IReadOnlyList<T> b, int blo, int bhi,
+        MyersScratch scratch) where T : notnull
+    {
         var n = ahi - alo;
         var m = bhi - blo;
-        var max = n + m;
+        var delta = n - m;
+        var odd = (delta & 1) == 1;
+        var max = (n + m + 1) / 2;
         var offset = max + 1;
-        var v = new int[2 * max + 3];
-        v[offset + 1] = 0;
-        var trace = new List<int[]>(max + 1);
-        var distance = 0;
-        var found = false;
-        for (var d = 0; d <= max && !found; d++)
+        var forward = scratch.Forward;
+        var reverse = scratch.Reverse;
+        forward[offset + 1] = 0;
+        reverse[offset + 1] = 0;
+
+        for (var d = 0; d <= max; d++)
         {
-            trace.Add((int[])v.Clone());
             for (var k = -d; k <= d; k += 2)
             {
-                var x = k == -d || (k != d && v[offset + k - 1] < v[offset + k + 1])
-                    ? v[offset + k + 1]
-                    : v[offset + k - 1] + 1;
+                var x = k == -d || (k != d && forward[offset + k - 1] < forward[offset + k + 1])
+                    ? forward[offset + k + 1]
+                    : forward[offset + k - 1] + 1;
                 var y = x - k;
+                var startX = x;
+                var startY = y;
                 while (x < n && y < m && EqualityComparer<T>.Default.Equals(a[alo + x], b[blo + y]))
                 {
                     x++;
                     y++;
                 }
-                v[offset + k] = x;
-                if (x >= n && y >= m)
+                forward[offset + k] = x;
+                if (odd && delta - (d - 1) <= k && k <= delta + (d - 1) &&
+                    reverse[offset + delta - k] + x >= n)
+                    return (startX, startY, x, y);
+            }
+
+            for (var k = -d; k <= d; k += 2)
+            {
+                var x = k == -d || (k != d && reverse[offset + k - 1] < reverse[offset + k + 1])
+                    ? reverse[offset + k + 1]
+                    : reverse[offset + k - 1] + 1;
+                var y = x - k;
+                var startX = x;
+                var startY = y;
+                while (x < n && y < m &&
+                       EqualityComparer<T>.Default.Equals(a[ahi - 1 - x], b[bhi - 1 - y]))
                 {
-                    distance = d;
-                    found = true;
-                    break;
+                    x++;
+                    y++;
                 }
+                reverse[offset + k] = x;
+                if (!odd && delta - d <= k && k <= delta + d &&
+                    forward[offset + delta - k] + x >= n)
+                    return (n - x, m - y, n - startX, m - startY);
             }
         }
+        return (0, 0, 0, 0);
+    }
 
-        var operations = new List<(EditKind Kind, int IndexA, int IndexB)>();
-        var curX = n;
-        var curY = m;
-        for (var d = distance; d >= 0; d--)
-        {
-            var prior = trace[d];
-            var k = curX - curY;
-            var priorK = k == -d || (k != d && prior[offset + k - 1] < prior[offset + k + 1])
-                ? k + 1
-                : k - 1;
-            var priorX = prior[offset + priorK];
-            var priorY = priorX - priorK;
-            while (curX > priorX && curY > priorY)
-            {
-                operations.Add((EditKind.Equal, alo + curX - 1, blo + curY - 1));
-                curX--;
-                curY--;
-            }
-            if (d == 0) break;
-            if (curX == priorX)
-            {
-                operations.Add((EditKind.Insert, alo + curX, blo + curY - 1));
-                curY--;
-            }
-            else
-            {
-                operations.Add((EditKind.Delete, alo + curX - 1, blo + curY));
-                curX--;
-            }
-        }
-        operations.Reverse();
-        foreach (var operation in operations)
-        {
-            switch (operation.Kind)
-            {
-                case EditKind.Equal: sink.Equal(operation.IndexA, operation.IndexB); break;
-                case EditKind.Delete: sink.Delete(operation.IndexA); break;
-                case EditKind.Insert: sink.Insert(operation.IndexB); break;
-            }
-        }
-
-        AppendSuffix(a, b, ahi, bhi, originalAhi, originalBhi, sink);
+    private sealed class MyersScratch(int capacity)
+    {
+        public int[] Forward { get; } = new int[2 * capacity + 2];
+        public int[] Reverse { get; } = new int[2 * capacity + 2];
     }
 
     private static void Patience<T>(IReadOnlyList<T> a, int alo, int ahi, IReadOnlyList<T> b, int blo, int bhi,
