@@ -33,6 +33,7 @@
                               Margin="8,0,4,0"/>
                     <Button Content="A−" Click="SmallerFont_Click"/>
                     <Button Content="A+" Click="LargerFont_Click"/>
+                    <Button Content="Settings…" Click="Settings_Click"/>
                     <CheckBox x:Name="ShowRemovedToggle" Content="Removed" IsChecked="True"
                               VerticalAlignment="Center" Margin="6,0,4,0" Checked="ShowRemoved_Changed"
                               Unchecked="ShowRemoved_Changed"/>

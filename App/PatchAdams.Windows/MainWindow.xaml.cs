@@ -24,6 +24,9 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, ComboBox> rankPickers = new(StringComparer.Ordinal);
     private bool synchronizingScroll;
     private double fontSize = 13;
+    private string fontFamily = "Consolas";
+    private bool askBlindModeOnNewSession = true;
+    private bool promptedForBlindMode;
     private string? basePath;
     private string? baseRevision;
     private string? baseCommit;
@@ -37,6 +40,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        var preferences = AppPreferencesStore.Load();
+        fontFamily = preferences.FontFamily;
+        fontSize = Math.Clamp(preferences.FontSize, 9, 24);
+        askBlindModeOnNewSession = preferences.AskBlindModeOnNewSession;
         FileTree.ItemsSource = files;
         FindingsList.ItemsSource = findingLabels;
         PinsList.ItemsSource = pins;
@@ -140,6 +147,7 @@ public partial class MainWindow : Window
             golden = null;
             ReloadPatches();
             StatusText.Text = $"{columns.Count} patches loaded.";
+            AskBlindModeOnce();
         }
         catch (Exception error)
         {
@@ -310,6 +318,7 @@ public partial class MainWindow : Window
             var editor = new CodeEditor
             {
                 FontSize = fontSize,
+                FontFamily = new FontFamily(fontFamily),
                 Tag = new EditorContext(column, appliedFile, displayLines, isGoldenDiff),
             };
             editor.SetCode(DiffEngine.SplitLines(renderedText), displayLines,
@@ -661,13 +670,49 @@ public partial class MainWindow : Window
     private void SmallerFont_Click(object sender, RoutedEventArgs e)
     {
         fontSize = Math.Max(9, fontSize - 1);
+        SavePreferences();
         RenderColumns();
     }
 
     private void LargerFont_Click(object sender, RoutedEventArgs e)
     {
         fontSize = Math.Min(24, fontSize + 1);
+        SavePreferences();
         RenderColumns();
+    }
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new PreferencesDialog(fontFamily, fontSize, askBlindModeOnNewSession) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        fontFamily = dialog.SelectedFontFamily;
+        fontSize = dialog.SelectedFontSize;
+        askBlindModeOnNewSession = dialog.AskBlindMode;
+        SavePreferences();
+        RenderColumns();
+    }
+
+    private void SavePreferences()
+    {
+        try
+        {
+            AppPreferencesStore.Save(new AppPreferences(fontFamily, fontSize, askBlindModeOnNewSession));
+        }
+        catch (Exception error)
+        {
+            StatusText.Text = $"Could not save settings: {error.Message}";
+        }
+    }
+
+    private void AskBlindModeOnce()
+    {
+        if (promptedForBlindMode) return;
+        promptedForBlindMode = true;
+        if (!askBlindModeOnNewSession) return;
+        var answer = MessageBox.Show(this,
+            "Review blind to reduce order bias? You can turn blind mode off at any time.",
+            "New patch review", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        BlindModeToggle.IsChecked = answer == MessageBoxResult.Yes;
     }
 
     private void ShowRemoved_Changed(object sender, RoutedEventArgs e)
@@ -731,7 +776,7 @@ public partial class MainWindow : Window
     {
         var query = SearchBox.Text;
         if (string.IsNullOrEmpty(query)) return;
-        var matches = new List<string>();
+        var hits = new List<SearchHit>();
         foreach (var column in columns)
         foreach (var file in column.Applied?.Files ?? [])
         {
@@ -739,10 +784,26 @@ public partial class MainWindow : Window
             var lines = DiffEngine.SplitLines(file.PostText);
             for (var index = 0; index < lines.Count; index++)
                 if (lines[index].Contains(query, StringComparison.OrdinalIgnoreCase))
-                    matches.Add($"{BlindDisplayLabel(column.Label)} · {Path.GetFileName(file.Path)} L{index + 1}:L{index + 1} — {lines[index].Trim()}");
+                    hits.Add(new SearchHit(column, file, index + 1,
+                        $"{file.Path} · {BlindDisplayLabel(column.Label)} · {Path.GetFileName(file.Path)} L{index + 1}:L{index + 1} — {lines[index].Trim()}"));
         }
-        MessageBox.Show(this, matches.Count == 0 ? "No matches." : string.Join(Environment.NewLine, matches),
-            $"Search: {query}", MessageBoxButton.OK, MessageBoxImage.Information);
+        if (hits.Count == 0)
+        {
+            MessageBox.Show(this, "No matches.", $"Search: {query}", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var ordered = hits.OrderBy(hit => hit.File.Path, StringComparer.Ordinal)
+            .ThenBy(hit => columns.IndexOf(hit.Column)).ThenBy(hit => hit.Line).ToArray();
+        var results = new SearchResultsWindow(query, ordered.Select(hit => hit.DisplayText).ToArray()) { Owner = this };
+        if (results.ShowDialog() != true || results.SelectedIndex < 0) return;
+        var selected = ordered[results.SelectedIndex];
+        selectedPath = selected.File.Path;
+        RenderColumns();
+        if (!codeEditors.TryGetValue(selected.Column.Label, out var editor) ||
+            editor.Tag is not EditorContext context)
+            return;
+        var row = context.DisplayLines.ToList().FindIndex(line => line.PostLine == selected.Line);
+        if (row >= 0) editor.ScrollToRow(row);
     }
 
     private static string StatusFor(AppliedFile? file)
@@ -972,6 +1033,7 @@ public partial class MainWindow : Window
 
     private sealed record ComparisonEntry(
         LoadedColumn Column, AppliedFile? File, AlignmentResult Result, string DisplayText);
+    private sealed record SearchHit(LoadedColumn Column, AppliedFile File, int Line, string DisplayText);
 
     private sealed record Selection(
         LoadedColumn Column, AppliedFile File, int Start, int End, string Reference, string Snippet);
@@ -1012,6 +1074,69 @@ internal sealed class TextPromptDialog : Window
     }
 }
 
+internal sealed class PreferencesDialog : Window
+{
+    private readonly TextBox fontFamilyBox = new() { MinWidth = 300, Margin = new Thickness(0, 4, 0, 10) };
+    private readonly TextBox fontSizeBox = new() { MinWidth = 80, Margin = new Thickness(0, 4, 0, 10) };
+    private readonly CheckBox askBlindBox = new() { Content = "Ask whether to use blind mode for a new review" };
+
+    public string SelectedFontFamily => fontFamilyBox.Text.Trim();
+    public double SelectedFontSize => double.Parse(fontSizeBox.Text, System.Globalization.CultureInfo.InvariantCulture);
+    public bool AskBlindMode => askBlindBox.IsChecked == true;
+
+    public PreferencesDialog(string fontFamily, double fontSize, bool askBlindMode)
+    {
+        Title = "PatchAdams# settings";
+        Owner = Application.Current.MainWindow;
+        Width = 420;
+        SizeToContent = SizeToContent.Height;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ResizeMode = ResizeMode.NoResize;
+        Background = new SolidColorBrush(Color.FromRgb(24, 38, 59));
+        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        fontFamilyBox.Text = fontFamily;
+        fontSizeBox.Text = fontSize.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        askBlindBox.IsChecked = askBlindMode;
+
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new TextBlock { Text = "Monospace font family" });
+        panel.Children.Add(fontFamilyBox);
+        panel.Children.Add(new TextBlock { Text = "Font size (9–24 pt)" });
+        panel.Children.Add(fontSizeBox);
+        panel.Children.Add(askBlindBox);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(new Button { Content = "Cancel", IsCancel = true });
+        var apply = new Button { Content = "Apply", IsDefault = true };
+        apply.Click += Apply_Click;
+        buttons.Children.Add(apply);
+        panel.Children.Add(buttons);
+        Content = panel;
+    }
+
+    private void Apply_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(SelectedFontFamily) ||
+            !double.TryParse(fontSizeBox.Text, System.Globalization.CultureInfo.InvariantCulture, out var size) ||
+            size is < 9 or > 24)
+        {
+            MessageBox.Show(this, "Enter a font family and a size from 9 to 24.", "Settings",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        try
+        {
+            _ = new FontFamily(SelectedFontFamily);
+        }
+        catch (ArgumentException)
+        {
+            MessageBox.Show(this, "The font family is not valid.", "Settings",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        DialogResult = true;
+    }
+}
+
 internal sealed class RawPatchWindow : Window
 {
     public RawPatchWindow(string title, string patchText)
@@ -1035,6 +1160,54 @@ internal sealed class RawPatchWindow : Window
             Background = new SolidColorBrush(Color.FromRgb(15, 24, 39)),
             Foreground = new SolidColorBrush(Color.FromRgb(221, 231, 242)),
             Padding = new Thickness(8)
+        };
+    }
+}
+
+internal sealed class SearchResultsWindow : Window
+{
+    private readonly ListBox results = new()
+    {
+        SelectionMode = SelectionMode.Single,
+        Margin = new Thickness(10)
+    };
+
+    public int SelectedIndex => results.SelectedIndex;
+
+    public SearchResultsWindow(string query, IReadOnlyList<string> hits)
+    {
+        Title = $"Search results — {query}";
+        Width = 850;
+        Height = 550;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = new SolidColorBrush(Color.FromRgb(16, 26, 43));
+        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        foreach (var hit in hits)
+            results.Items.Add(hit);
+
+        var panel = new DockPanel();
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(8)
+        };
+        buttons.Children.Add(new Button { Content = "Close", IsCancel = true });
+        var open = new Button { Content = "Open location", IsDefault = true };
+        open.Click += (_, _) =>
+        {
+            if (results.SelectedIndex >= 0)
+                DialogResult = true;
+        };
+        buttons.Children.Add(open);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        panel.Children.Add(buttons);
+        panel.Children.Add(results);
+        Content = panel;
+        results.MouseDoubleClick += (_, _) =>
+        {
+            if (results.SelectedIndex >= 0)
+                DialogResult = true;
         };
     }
 }
