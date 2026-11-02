@@ -12,7 +12,10 @@ public sealed record DisplayLine(DisplayLineKind Kind, int? BaseLine, int? PostL
 
 public static class DisplayLines
 {
-    public static IReadOnlyList<DisplayLine> Create(AppliedFile file, bool collapseSyntheticFiller = true)
+    public static IReadOnlyList<DisplayLine> Create(
+        AppliedFile file,
+        bool collapseSyntheticFiller = true,
+        bool includeRemoved = true)
     {
         var baseLines = DiffEngine.SplitLines(file.BaseText ?? "");
         var postLines = DiffEngine.SplitLines(file.PostText ?? "");
@@ -25,7 +28,8 @@ public static class DisplayLines
             var mappedPost = file.LineMap.PostForBase(baseIndex + 1);
             if (mappedPost is null)
             {
-                result.Add(new DisplayLine(DisplayLineKind.Removed, baseIndex + 1, null, baseLines[baseIndex]));
+                if (includeRemoved)
+                    result.Add(new DisplayLine(DisplayLineKind.Removed, baseIndex + 1, null, baseLines[baseIndex]));
                 baseIndex++;
                 continue;
             }

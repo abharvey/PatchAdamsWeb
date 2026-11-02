@@ -114,6 +114,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        LoadPatchFiles(dialog.FileNames);
+    }
+
+    private void LoadPatchFiles(IReadOnlyList<string> paths)
+    {
         try
         {
             columns.Clear();
@@ -125,9 +130,9 @@ public partial class MainWindow : Window
             findingLabels.Clear();
             loadedSession = null;
             var labels = new[] { "A", "B", "C", "D" };
-            for (var index = 0; index < dialog.FileNames.Length; index++)
+            for (var index = 0; index < paths.Count; index++)
             {
-                var path = dialog.FileNames[index];
+                var path = paths[index];
                 var text = File.ReadAllText(path);
                 var patch = UnifiedDiffParser.Parse(text);
                 columns.Add(new LoadedColumn(labels[index], Path.GetFileName(path), text, patch));
@@ -139,6 +144,58 @@ public partial class MainWindow : Window
         catch (Exception error)
         {
             MessageBox.Show(this, error.Message, "Could not load patches", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void MainWindow_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void MainWindow_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
+        var patches = paths.Where(path =>
+            Path.GetExtension(path).Equals(".patch", StringComparison.OrdinalIgnoreCase) ||
+            Path.GetExtension(path).Equals(".diff", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (patches.Length is < 2 or > 4)
+        {
+            MessageBox.Show(this, "Drop between two and four .patch or .diff files.",
+                "PatchAdams#", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        LoadPatchFiles(patches);
+    }
+
+    private void PastePatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (columns.Count is < 2 or >= 4)
+        {
+            MessageBox.Show(this, "Load two or three patch files first, then paste one more patch.",
+                "Paste patch", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (!Clipboard.ContainsText())
+        {
+            MessageBox.Show(this, "The clipboard does not contain patch text.", "Paste patch",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        try
+        {
+            var text = Clipboard.GetText();
+            var patch = UnifiedDiffParser.Parse(text);
+            var label = new[] { "A", "B", "C", "D" }.First(candidate =>
+                columns.All(column => column.Label != candidate));
+            columns.Add(new LoadedColumn(label, "pasted patch", text, patch));
+            loadedSession = null;
+            ReloadPatches();
+            StatusText.Text = $"Patch {BlindDisplayLabel(label)} pasted.";
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Could not parse pasted patch", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -243,7 +300,7 @@ public partial class MainWindow : Window
             var appliedFile = column.Applied?.FileAt(selectedPath);
             var isGoldenDiff = golden is not null && column.Label != golden;
             IReadOnlyList<DisplayLine> displayLines = appliedFile?.PostText is not null && !isGoldenDiff
-                ? DisplayLines.Create(appliedFile)
+                ? DisplayLines.Create(appliedFile, includeRemoved: ShowRemovedToggle.IsChecked == true)
                 : [];
             var renderedText = appliedFile?.PostText is null
                 ? RenderColumnText(column, null)
@@ -613,6 +670,11 @@ public partial class MainWindow : Window
         RenderColumns();
     }
 
+    private void ShowRemoved_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IsInitialized) RenderColumns();
+    }
+
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         var modifiers = Keyboard.Modifiers;
@@ -622,6 +684,12 @@ public partial class MainWindow : Window
             GoldenPicker.SelectedIndex = golden == columns.ElementAtOrDefault(goldenIndex)?.Label
                 ? 0
                 : goldenIndex + 1;
+            e.Handled = true;
+            return;
+        }
+        if (modifiers.HasFlag(ModifierKeys.Control) && modifiers.HasFlag(ModifierKeys.Alt) && e.Key == Key.V)
+        {
+            PastePatch_Click(this, new RoutedEventArgs());
             e.Handled = true;
             return;
         }

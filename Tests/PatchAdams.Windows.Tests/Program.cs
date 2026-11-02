@@ -330,6 +330,8 @@ static class SessionTests
             ReferenceGenerator.ForDisplaySelection([display[1]], "main.cs"), "removed reference");
         Assert.Equal("main.cs L2:L2",
             ReferenceGenerator.ForDisplaySelection([display[2]], "main.cs"), "post reference");
+        Assert.True(DisplayLines.Create(applied, includeRemoved: false)
+            .All(line => line.Kind != DisplayLineKind.Removed), "removed lines can be hidden");
 
         var fillerPatch = UnifiedDiffParser.Parse("""
             diff --git a/main.cs b/main.cs
