@@ -1,10 +1,13 @@
 using System.Text.RegularExpressions;
+using PatchAdams.Core;
 
 var tests = new (string Name, Action Run)[]
 {
     ("fixture inventory and file counts remain stable", FixtureTests.InventoryAndFileCountsRemainStable),
     ("every fixture hunk agrees with its declared line counts", FixtureTests.HunkCountsAgree),
     ("rename fixture retains old path, new path, and similarity", FixtureTests.RenameMetadataRemainsPresent),
+    ("strict parser parses every fixture", FixtureTests.ParserParsesEveryFixture),
+    ("strict parser reports malformed hunk line", FixtureTests.MalformedHunkReportsItsLine),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -121,6 +124,54 @@ static class FixtureTests
         Assert.Contains("rename from tests/billing/test_ledger.py", fixture, "rename source path");
         Assert.Contains("rename to tests/test_ledger.py", fixture, "rename destination path");
         Assert.Contains("similarity index 95%", fixture, "rename similarity");
+    }
+
+    public static void ParserParsesEveryFixture()
+    {
+        var fixtureDirectory = FindRepositoryRoot();
+        foreach (var (name, expectedCount) in ExpectedFiles)
+        {
+            var patch = UnifiedDiffParser.ParseFile(Path.Combine(fixtureDirectory, name));
+            Assert.Equal(expectedCount, patch.Files.Count, $"{name} parsed file count");
+            foreach (var file in patch.Files)
+            foreach (var hunk in file.Hunks)
+            {
+                Assert.Equal(hunk.OldCount,
+                    hunk.Lines.Count(line => line.Kind != PatchLineKind.Added),
+                    $"{name}:{file.Path} old hunk count");
+                Assert.Equal(hunk.NewCount,
+                    hunk.Lines.Count(line => line.Kind != PatchLineKind.Removed),
+                    $"{name}:{file.Path} new hunk count");
+            }
+        }
+
+        var rename = UnifiedDiffParser.ParseFile(Path.Combine(fixtureDirectory, "rename.patch"))
+            .Files.Single(file => file.Kind == FileChangeKind.Renamed);
+        Assert.Equal("tests/billing/test_ledger.py", rename.OldPath, "rename old path");
+        Assert.Equal("tests/test_ledger.py", rename.NewPath, "rename new path");
+        Assert.Equal(95, rename.Similarity, "rename similarity");
+    }
+
+    public static void MalformedHunkReportsItsLine()
+    {
+        const string input = """
+            diff --git a/example.txt b/example.txt
+            --- a/example.txt
+            +++ b/example.txt
+            @@ -1,2 +1,2 @@
+             old
+            +new
+            """;
+        try
+        {
+            UnifiedDiffParser.Parse(input);
+        }
+        catch (PatchParseException error)
+        {
+            Assert.Equal(7, error.Line, "malformed hunk source line");
+            return;
+        }
+        throw new InvalidOperationException("Expected malformed hunk to be rejected.");
     }
 
     private static int Count(Match match, string group) =>
