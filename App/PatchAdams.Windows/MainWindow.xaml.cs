@@ -354,7 +354,8 @@ public partial class MainWindow : Window
                 Tag = new EditorContext(column, appliedFile, displayLines, isGoldenDiff),
             };
             editor.SetCode(DiffEngine.SplitLines(renderedText), displayLines,
-                Path.GetExtension(selectedPath).ToLowerInvariant(), !isGoldenDiff);
+                Path.GetExtension(selectedPath).ToLowerInvariant(), !isGoldenDiff,
+                findings.Where(finding => finding.Label == column.Label && finding.Path == selectedPath).ToArray());
             editor.SelectionChanged += CodeSelectionChanged;
             editor.Loaded += (_, _) =>
             {

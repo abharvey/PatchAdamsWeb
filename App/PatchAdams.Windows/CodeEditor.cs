@@ -50,7 +50,8 @@ internal sealed class CodeEditor : RichTextBox
         IReadOnlyList<string> lines,
         IReadOnlyList<DisplayLine> mappedLines,
         string extension,
-        bool hasLineGutters)
+        bool hasLineGutters,
+        IReadOnlyList<SessionFinding>? findings = null)
     {
         Document.Blocks.Clear();
         rows.Clear();
@@ -80,11 +81,30 @@ internal sealed class CodeEditor : RichTextBox
             {
                 paragraph.Background = Brush("#3D1C2B");
             }
+            if (index < mappedLines.Count && findings is not null)
+            {
+                var displayLine = mappedLines[index];
+                var finding = findings.FirstOrDefault(item => !item.NotFlagged &&
+                    ((displayLine.PostLine is int post && post >= item.Lines.Lower && post <= item.Lines.Upper) ||
+                     (displayLine.PostLine is null && displayLine.BaseLine is int baseLine &&
+                      baseLine >= item.Lines.Lower && baseLine <= item.Lines.Upper)));
+                if (finding is not null)
+                    paragraph.Background = FindingBrush(finding.Severity);
+            }
             AddHighlightedLine(paragraph, line, extension, hasLineGutters);
             Document.Blocks.Add(paragraph);
             rows.Add(paragraph);
         }
     }
+
+    private static SolidColorBrush FindingBrush(FindingSeverity severity) => severity switch
+    {
+        FindingSeverity.Blocking => Brush("#59303A"),
+        FindingSeverity.Material => Brush("#59402A"),
+        FindingSeverity.Minor => Brush("#4A4D2C"),
+        FindingSeverity.Trivial => Brush("#34434B"),
+        _ => Brush("#31445F")
+    };
 
     public (int Start, int End)? SelectedRows()
     {
