@@ -528,6 +528,14 @@ static class DiffEngineTests
             "large disjoint diff replay");
         Assert.Equal(512, disjoint.DeletedCount, "large disjoint delete count");
         Assert.Equal(512, disjoint.InsertedCount, "large disjoint insert count");
+
+        var largeBefore = Enumerable.Range(0, 10_000).Select(index => $"line-{index}").ToArray();
+        var largeAfter = (string[])largeBefore.Clone();
+        largeAfter[5_000] = "changed-line";
+        var largeDiff = DiffEngine.Lines(largeBefore, largeAfter, DiffAlgorithm.Myers);
+        Assert.SequenceEqual(largeAfter, largeDiff.Apply(largeBefore, largeAfter), "10k-line diff replay");
+        Assert.Equal(1, largeDiff.DeletedCount, "10k-line changed count");
+        Assert.Equal(1, largeDiff.InsertedCount, "10k-line inserted count");
     }
 
     public static void TokenSimilarityIgnoresWhitespace()
@@ -553,6 +561,11 @@ static class DiffEngineTests
             "comment token");
         Assert.Equal(0, SyntaxHighlighter.TokenizeLine("plain text", ".txt").Count,
             "plain text remains uncolored");
+        var largeSource = string.Join('\n', Enumerable.Range(0, 10_000).Select(index =>
+            $"func process{index}(value int) {{ return \"ok\" }}"));
+        var largeTokenCount = largeSource.Split('\n').SelectMany(sourceLine =>
+            SyntaxHighlighter.TokenizeLine(sourceLine, ".go")).Count();
+        Assert.True(largeTokenCount >= 40_000, "large file token scan returns all runs");
     }
 }
 
