@@ -10,6 +10,8 @@ var tests = new (string Name, Action Run)[]
     ("rename fixture retains old path, new path, and similarity", FixtureTests.RenameMetadataRemainsPresent),
     ("strict parser parses every fixture", FixtureTests.ParserParsesEveryFixture),
     ("format-patch mail metadata and body are preserved", FixtureTests.MailHeaderPreservesBody),
+    ("added, deleted, binary, rename, and mode-change headers parse", FixtureTests.FileMetadataParses),
+    ("quoted paths containing spaces parse", FixtureTests.QuotedPathsParse),
     ("strict parser reports malformed hunk line", FixtureTests.MalformedHunkReportsItsLine),
     ("directory bases read files without escaping their root", BaseLoaderTests.DirectoryReadsAndContainsPaths),
     ("zip bases strip one common top-level folder", BaseLoaderTests.ZipStripsCommonPrefix),
@@ -180,6 +182,41 @@ static class FixtureTests
         Assert.Equal("Fixture Author <fixtures@example.invalid>", patch.MailHeader?.From, "mail author");
         Assert.Equal("[PATCH] Cap tile zoom at 18", patch.MailHeader?.Subject, "mail subject");
         Assert.Equal("Deeper tiles are never rendered; refuse them early.", patch.MailHeader?.Body, "mail body");
+    }
+
+    public static void FileMetadataParses()
+    {
+        var fixtureDirectory = FindRepositoryRoot();
+        var scaffold = UnifiedDiffParser.ParseFile(Path.Combine(fixtureDirectory, "scaffold.patch"));
+        var added = scaffold.Files.Single(file => file.Path == "AGENTS.md");
+        Assert.Equal(FileChangeKind.Added, added.Kind, "new file kind");
+        Assert.Equal<string?>(null, added.OldPath, "new file old path");
+        Assert.Equal("100644", added.NewMode, "new file mode");
+        var binary = scaffold.Files.Single(file => file.Path == "assets/logo.png");
+        Assert.True(binary.IsBinary, "binary file stub");
+
+        var rename = UnifiedDiffParser.ParseFile(Path.Combine(fixtureDirectory, "rename.patch"));
+        var deleted = rename.Files.Single(file => file.Kind == FileChangeKind.Deleted);
+        Assert.Equal("ledger/legacy.py", deleted.OldPath, "deleted path");
+        Assert.Equal<string?>(null, deleted.NewPath, "deleted destination");
+        var modeChange = scaffold.Files.Single(file => file.Path == "tools/run.sh");
+        Assert.Equal("100644", modeChange.OldMode, "old mode");
+        Assert.Equal("100755", modeChange.NewMode, "new mode");
+    }
+
+    public static void QuotedPathsParse()
+    {
+        const string diff = """
+            diff --git "a/source file.txt" "b/source file.txt"
+            --- "a/source file.txt"
+            +++ "b/source file.txt"
+            @@ -1 +1 @@
+            -old
+            +new
+            """;
+        var change = UnifiedDiffParser.Parse(diff).Files.Single();
+        Assert.Equal("source file.txt", change.Path, "quoted path");
+        Assert.Equal("source file.txt", change.FileName, "quoted file name");
     }
 
     public static void MalformedHunkReportsItsLine()
