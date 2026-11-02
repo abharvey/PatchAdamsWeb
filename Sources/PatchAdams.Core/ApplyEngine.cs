@@ -55,6 +55,23 @@ public sealed record AppliedFile(
     IReadOnlyList<HunkPlacement> Hunks)
 {
     public string Path => Change.Path;
+
+    public static AppliedFile Unchanged(string path, string text)
+    {
+        var lineCount = DiffEngine.SplitLines(text).Count;
+        var identity = Enumerable.Range(1, lineCount).Select(line => (int?)line).ToArray();
+        var change = new FileChange(path, path, FileChangeKind.Modified, null, null, null, false, []);
+        return new AppliedFile(change, text, text, new ApplyStatus(ApplyStatusKind.Clean),
+            new LineMap(identity, identity), []);
+    }
+
+    public static AppliedFile Deleted(string path, string baseText)
+    {
+        var baseLineCount = DiffEngine.SplitLines(baseText).Count;
+        var change = new FileChange(path, null, FileChangeKind.Deleted, null, null, null, false, []);
+        return new AppliedFile(change, baseText, null, new ApplyStatus(ApplyStatusKind.Clean),
+            new LineMap([], new int?[baseLineCount]), []);
+    }
 }
 
 public sealed record ApplyReport(int Clean, int Fuzz, int Failed, int Binary)

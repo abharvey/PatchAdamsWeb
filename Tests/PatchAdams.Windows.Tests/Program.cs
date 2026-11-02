@@ -19,6 +19,7 @@ var tests = new (string Name, Action Run)[]
     ("archive paths cannot escape the archive root", BaseLoaderTests.ArchiveRejectsEscapingPath),
     ("git revisions are read by approved read-only commands", BaseLoaderTests.GitRevisionIsReadOnly),
     ("patches apply in memory with line maps and status reports", ApplyEngineTests.ApplyIsInMemoryAndMapsLines),
+    ("unmodified files retain identity line maps", ApplyEngineTests.UnchangedFilesRetainIdentityMap),
     ("context fuzz is reported without writing the base", ApplyEngineTests.FuzzIsReported),
     ("failed hunks keep raw patch data and no post text", ApplyEngineTests.FailedHunkKeepsPatch),
     ("every fixture applies cleanly to its synthetic base", ApplyEngineTests.EveryFixtureAppliesToSyntheticBase),
@@ -35,6 +36,7 @@ var tests = new (string Name, Action Run)[]
     ("blind export reveals its mapping only at the end", SessionTests.BlindExportRevealsMappingLast),
     ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),
     ("display lines retain dual gutters and removed-side references", SessionTests.DisplayLinesAndRemovedReference),
+    ("deleted files still display their removed base lines", SessionTests.DeletedFileDisplaysBaseLines),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -365,6 +367,27 @@ static class SessionTests
         Assert.Equal(2, collapsed[0].CollapsedCount, "collapsed filler count");
     }
 
+    public static void DeletedFileDisplaysBaseLines()
+    {
+        using var baseDirectory = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(baseDirectory.Path, "removed.txt"), "first\nsecond\n");
+        var patch = UnifiedDiffParser.Parse("""
+            diff --git a/removed.txt b/removed.txt
+            deleted file mode 100644
+            --- a/removed.txt
+            +++ /dev/null
+            @@ -1,2 +0,0 @@
+            -first
+            -second
+            """);
+        var file = ApplyEngine.Apply(patch, new DirectoryFileProvider(baseDirectory.Path)).Files.Single();
+        Assert.Equal<string?>(null, file.PostText, "deleted post text");
+        Assert.SequenceEqual([1, 2], DisplayLines.Create(file).Select(line => line.BaseLine!.Value),
+            "deleted display base lines");
+        Assert.True(DisplayLines.Create(file).All(line => line.Kind == DisplayLineKind.Removed),
+            "deleted display rows");
+    }
+
     private static ReviewSession CreateSession(bool blind)
     {
         var now = new DateTimeOffset(2026, 11, 2, 10, 0, 0, TimeSpan.Zero);
@@ -535,6 +558,15 @@ static class DiffEngineTests
 
 static class ApplyEngineTests
 {
+    public static void UnchangedFilesRetainIdentityMap()
+    {
+        var file = AppliedFile.Unchanged("source/main.cs", "one\ntwo\n");
+        Assert.Equal("one\ntwo\n", file.PostText, "unchanged post text");
+        Assert.Equal(1, file.LineMap.BaseForPost(1), "unchanged first line");
+        Assert.Equal(2, file.LineMap.PostForBase(2), "unchanged second line");
+        Assert.Equal(2, file.LineMap.PostLineCount, "unchanged line count");
+    }
+
     public static void EveryFixtureAppliesToSyntheticBase()
     {
         var fixtureDirectory = Path.Combine(FixtureTestsRoot(), "patches");

@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly List<LoadedColumn> columns = [];
     private readonly Dictionary<string, CodeEditor> codeEditors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ComboBox> rankPickers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> baseTextForFiles = new(StringComparer.Ordinal);
     private bool synchronizingScroll;
     private double fontSize = 13;
     private string fontFamily = "Consolas";
@@ -258,8 +259,26 @@ public partial class MainWindow : Window
                     }
                 }
                 var applied = inputs.Select(column => ApplyEngine.Apply(column.Patch, provider)).ToArray();
+                var baseTexts = inputs.SelectMany(column => column.Patch.Files)
+                    .SelectMany(change => new[] { change.Path, change.OldPath })
+                    .Where(path => !string.IsNullOrEmpty(path))
+                    .Select(path => path!)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToDictionary(path => path, path =>
+                    {
+                        try
+                        {
+                            var bytes = provider.ReadFile(path);
+                            return bytes is null ? null : BaseText.Decode(bytes);
+                        }
+                        catch
+                        {
+                            return null;
+                        }
+                    }, StringComparer.Ordinal);
                 return (Applied: applied, Path: resolvedPath, Revision: resolvedRevision,
-                    Commit: resolvedCommit, Kind: resolvedKind, UsedFallback: usedFallback);
+                    Commit: resolvedCommit, Kind: resolvedKind, UsedFallback: usedFallback,
+                    BaseTexts: baseTexts);
             });
             if (generation != reloadGeneration || !inputs.SequenceEqual(columns))
                 return;
@@ -268,15 +287,23 @@ public partial class MainWindow : Window
             baseCommit = result.Commit;
             baseKind = result.Kind;
             for (var index = 0; index < inputs.Length; index++)
+            {
                 inputs[index].Applied = result.Applied[index];
+                inputs[index].UnchangedFiles.Clear();
+            }
+            baseTextForFiles.Clear();
+            foreach (var (path, text) in result.BaseTexts)
+                baseTextForFiles[path] = text;
             files.Clear();
-            foreach (var path in columns.SelectMany(column => column.Applied!.Files).Select(file => file.Path)
+            foreach (var path in columns.SelectMany(column => column.Applied!.Files)
+                         .SelectMany(file => file.Change.Kind == FileChangeKind.Renamed && file.Change.OldPath is not null
+                             ? new[] { file.Path, file.Change.OldPath! }
+                             : new[] { file.Path })
                          .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
             {
                 var statuses = columns.Select(column =>
                 {
-                    var file = column.Applied!.FileAt(path);
-                    return $"{BlindDisplayLabel(column.Label)}:{StatusFor(file)}";
+                    return $"{BlindDisplayLabel(column.Label)}:{StatusForColumn(column, path)}";
                 });
                 files.Add(new FileTreeEntry(path, string.Join("  ", statuses)));
             }
@@ -309,6 +336,23 @@ public partial class MainWindow : Window
         RenderColumns();
     }
 
+    private AppliedFile? ColumnFile(LoadedColumn column, string path)
+    {
+        var changed = column.Applied?.FileAt(path);
+        if (changed is not null) return changed;
+        var renamed = column.Applied?.Files.FirstOrDefault(file =>
+            file.Change.Kind == FileChangeKind.Renamed && file.Change.OldPath == path);
+        if (renamed?.BaseText is not null)
+            return AppliedFile.Deleted(path, renamed.BaseText);
+        if (column.UnchangedFiles.TryGetValue(path, out var cached))
+            return cached;
+        if (!baseTextForFiles.TryGetValue(path, out var text) || text is null)
+            return null;
+        var unchanged = AppliedFile.Unchanged(path, text);
+        column.UnchangedFiles[path] = unchanged;
+        return unchanged;
+    }
+
     private void RenderColumns()
     {
         ColumnsGrid.Children.Clear();
@@ -337,15 +381,18 @@ public partial class MainWindow : Window
             DockPanel.SetDock(header, Dock.Top);
             panel.Children.Add(header);
 
-            var appliedFile = column.Applied?.FileAt(selectedPath);
+            var appliedFile = ColumnFile(column, selectedPath);
             var isGoldenDiff = golden is not null && column.Label != golden;
-            IReadOnlyList<DisplayLine> displayLines = appliedFile?.PostText is not null && !isGoldenDiff
-                ? DisplayLines.Create(appliedFile, includeRemoved: ShowRemovedToggle.IsChecked == true)
+            var canRenderFile = appliedFile is not null &&
+                appliedFile.Status.Kind is not ApplyStatusKind.Failed and not ApplyStatusKind.Binary &&
+                (appliedFile.PostText is not null || appliedFile.Change.Kind == FileChangeKind.Deleted);
+            IReadOnlyList<DisplayLine> displayLines = canRenderFile && !isGoldenDiff
+                ? DisplayLines.Create(appliedFile!, includeRemoved: ShowRemovedToggle.IsChecked == true)
                 : [];
-            var renderedText = appliedFile?.PostText is null
+            var renderedText = !canRenderFile
                 ? RenderColumnText(column, null)
                 : isGoldenDiff
-                    ? RenderColumnText(column, appliedFile.PostText)
+                    ? RenderColumnText(column, appliedFile?.PostText)
                     : RenderDisplayLines(displayLines);
             var editor = new CodeEditor
             {
@@ -500,7 +547,9 @@ public partial class MainWindow : Window
             return;
         var selectedRows = editor.SelectedRows();
         if (selectedRows is null) return;
-        if (context.IsGoldenDiff || context.File?.PostText is null) return;
+        if (context.IsGoldenDiff || context.File is null ||
+            context.File.Status.Kind is ApplyStatusKind.Failed or ApplyStatusKind.Binary)
+            return;
         var first = selectedRows.Value.Start + 1;
         var last = selectedRows.Value.End + 1;
         if (selectedPath.Length == 0) return;
@@ -534,7 +583,7 @@ public partial class MainWindow : Window
         var region = new Region(selectedPath, startLine, endLine);
         foreach (var column in columns.Where(column => column.Label != sourceColumn.Label))
         {
-            var target = column.Applied?.FileAt(selectedPath);
+            var target = ColumnFile(column, selectedPath);
             var manual = manualAnchors.LastOrDefault(anchor =>
                 anchor.SourceLabel == sourceColumn.Label && anchor.TargetLabel == column.Label &&
                 anchor.Path == selectedPath && anchor.SourceLines.Lower == startLine &&
@@ -818,8 +867,10 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(query)) return;
         var hits = new List<SearchHit>();
         foreach (var column in columns)
-        foreach (var file in column.Applied?.Files ?? [])
+        foreach (var entry in files)
         {
+            var file = ColumnFile(column, entry.Path);
+            if (file is null) continue;
             if (file.PostText is null) continue;
             var lines = DiffEngine.SplitLines(file.PostText);
             for (var index = 0; index < lines.Count; index++)
@@ -860,6 +911,15 @@ public partial class MainWindow : Window
         };
     }
 
+    private string StatusForColumn(LoadedColumn column, string path)
+    {
+        var file = column.Applied?.FileAt(path);
+        if (file is null && column.Applied?.Files.Any(change =>
+                change.Change.Kind == FileChangeKind.Renamed && change.Change.OldPath == path) == true)
+            return "deleted";
+        return StatusFor(file);
+    }
+
     private void ShowRawPatch_Click(object sender, RoutedEventArgs e)
     {
         if (BlindModeToggle.IsChecked == true)
@@ -868,7 +928,8 @@ public partial class MainWindow : Window
                 "Blind review", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var column = columns.FirstOrDefault(candidate => candidate.Patch.Files.Any(file => file.Path == selectedPath))
+        var column = columns.FirstOrDefault(candidate => candidate.Patch.Files.Any(file =>
+                file.Path == selectedPath || file.OldPath == selectedPath))
             ?? columns.FirstOrDefault();
         if (column is null) return;
         var viewer = new RawPatchWindow($"{column.Label} — {column.SourceName}", column.PatchText) { Owner = this };
@@ -1063,6 +1124,7 @@ public partial class MainWindow : Window
         public string PatchText { get; } = patchText;
         public Patch Patch { get; } = patch;
         public AppliedPatch? Applied { get; set; }
+        public Dictionary<string, AppliedFile> UnchangedFiles { get; } = new(StringComparer.Ordinal);
         public bool IsHidden { get; set; }
         public bool IsRead { get; set; }
     }
