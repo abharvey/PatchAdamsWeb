@@ -19,6 +19,7 @@ if (-not (Test-Path $publish)) {
 }
 
 New-Item -ItemType Directory -Force -Path $install | Out-Null
+New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
 Copy-Item -Path (Join-Path $publish "*") -Destination $install -Recurse -Force
 
 $shell = New-Object -ComObject WScript.Shell
