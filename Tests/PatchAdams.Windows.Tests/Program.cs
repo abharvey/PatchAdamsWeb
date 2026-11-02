@@ -28,6 +28,7 @@ var tests = new (string Name, Action Run)[]
     ("session packages round-trip patches and review state", SessionTests.PackageRoundTripsState),
     ("blind export reveals its mapping only at the end", SessionTests.BlindExportRevealsMappingLast),
     ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),
+    ("display lines retain dual gutters and removed-side references", SessionTests.DisplayLinesAndRemovedReference),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -256,6 +257,45 @@ static class SessionTests
         Assert.Equal("main.cs L1:L2", ReferenceGenerator.ForSelection(file, 1, 2), "generated file-name-only reference");
         Assert.Throws<ArgumentOutOfRangeException>(() => ReferenceGenerator.ForSelection(file, 0, 2),
             "invalid selection rejected");
+    }
+
+    public static void DisplayLinesAndRemovedReference()
+    {
+        using var baseDirectory = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(baseDirectory.Path, "main.cs"), "before\nold\ncontext\n");
+        var patch = UnifiedDiffParser.Parse("""
+            diff --git a/main.cs b/main.cs
+            --- a/main.cs
+            +++ b/main.cs
+            @@ -1,3 +1,3 @@
+             before
+            -old
+            +new
+             context
+            """);
+        var applied = ApplyEngine.Apply(patch, new DirectoryFileProvider(baseDirectory.Path)).Files.Single();
+        var display = DisplayLines.Create(applied);
+        Assert.SequenceEqual(
+            [DisplayLineKind.Context, DisplayLineKind.Removed, DisplayLineKind.Added, DisplayLineKind.Context],
+            display.Select(line => line.Kind), "line display kinds");
+        Assert.Equal("main.cs -L2:L2",
+            ReferenceGenerator.ForDisplaySelection([display[1]], "main.cs"), "removed reference");
+        Assert.Equal("main.cs L2:L2",
+            ReferenceGenerator.ForDisplaySelection([display[2]], "main.cs"), "post reference");
+
+        var fillerPatch = UnifiedDiffParser.Parse("""
+            diff --git a/main.cs b/main.cs
+            --- a/main.cs
+            +++ b/main.cs
+            @@ -3 +3 @@
+            -context
+            +changed
+            """);
+        var synthetic = new InMemoryFileProvider(SyntheticBase.For(fillerPatch));
+        var syntheticFile = ApplyEngine.Apply(fillerPatch, synthetic).Files.Single();
+        var collapsed = DisplayLines.Create(syntheticFile);
+        Assert.Equal(DisplayLineKind.SyntheticFiller, collapsed[0].Kind, "unknown filler collapsed");
+        Assert.Equal(2, collapsed[0].CollapsedCount, "collapsed filler count");
     }
 
     private static ReviewSession CreateSession(bool blind)

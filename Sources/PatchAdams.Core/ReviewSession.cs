@@ -137,6 +137,17 @@ public static class ReferenceGenerator
         var name = file.Change.FileName;
         return $"{name} L{startLine}:L{endLine}";
     }
+
+    public static string ForDisplaySelection(IReadOnlyList<DisplayLine> lines, string fileName)
+    {
+        var postLines = lines.Where(line => line.PostLine.HasValue).Select(line => line.PostLine!.Value).ToArray();
+        if (postLines.Length > 0)
+            return $"{fileName} L{postLines[0]}:L{postLines[^1]}";
+        var baseLines = lines.Where(line => line.BaseLine.HasValue).Select(line => line.BaseLine!.Value).ToArray();
+        if (baseLines.Length > 0)
+            return $"{fileName} -L{baseLines[0]}:L{baseLines[^1]}";
+        throw new ArgumentException("Selection has no base or post-patch line.", nameof(lines));
+    }
 }
 
 public sealed record SessionContents(ReviewSession Session, IReadOnlyDictionary<string, string> PatchTexts);
