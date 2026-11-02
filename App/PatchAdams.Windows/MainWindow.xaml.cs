@@ -186,14 +186,9 @@ public partial class MainWindow : Window
                 files.Add(new FileTreeEntry(path, string.Join("  ", statuses)));
             }
 
-            GoldenPicker.Items.Clear();
-            GoldenPicker.Items.Add("None");
-            foreach (var column in columns)
-                GoldenPicker.Items.Add($"{column.Label} — {column.SourceName}");
-            var goldenIndex = columns.FindIndex(column => column.Label == golden);
-            GoldenPicker.SelectedIndex = goldenIndex + 1;
+            PopulateGoldenPicker();
             ReportText.Text = string.Join(Environment.NewLine, columns.Select(column =>
-                $"{column.Label} — {column.SourceName}: {column.Applied!.Report.Clean} clean, " +
+                $"{(BlindModeToggle.IsChecked == true ? $"Patch {BlindDisplayLabel(column.Label)}" : $"{column.Label} — {column.SourceName}")}: {column.Applied!.Report.Clean} clean, " +
                 $"{column.Applied.Report.Fuzz} fuzz, {column.Applied.Report.Failed} failed, " +
                 $"{column.Applied.Report.Binary} binary"));
             RenderColumns();
@@ -235,8 +230,8 @@ public partial class MainWindow : Window
             var header = new TextBlock
             {
                 Text = BlindModeToggle.IsChecked == true
-                    ? $"Patch {BlindDisplayLabel(column.Label)}"
-                    : $"{column.Label} — {column.SourceName}",
+                    ? $"Patch {BlindDisplayLabel(column.Label)}{(column.IsRead ? " ✓" : "")}"
+                    : $"{column.Label} — {column.SourceName}{(column.IsRead ? " ✓" : "")}",
                 FontWeight = FontWeights.Bold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(3, 3, 3, 7)
@@ -448,7 +443,11 @@ public partial class MainWindow : Window
         foreach (var column in columns.Where(column => column.Label != sourceColumn.Label))
         {
             var target = column.Applied?.FileAt(selectedPath);
-            var result = AlignmentEngine.Locate(region, sourceFile, target);
+            var manual = manualAnchors.LastOrDefault(anchor =>
+                anchor.SourceLabel == sourceColumn.Label && anchor.TargetLabel == column.Label &&
+                anchor.Path == selectedPath && anchor.SourceLines.Lower == startLine &&
+                anchor.SourceLines.Upper == endLine);
+            var result = AlignmentEngine.Locate(region, sourceFile, target, manual);
             var nearest = result.Status == AlignmentStatus.Absent && result.NearestHunkStart.HasValue
                 ? $" · nearest hunk at base line {result.NearestHunkStart}"
                 : "";
@@ -537,6 +536,7 @@ public partial class MainWindow : Window
     private void BlindMode_Changed(object sender, RoutedEventArgs e)
     {
         if (!IsInitialized) return;
+        PopulateGoldenPicker();
         RenderColumns();
         RenderRanking();
         for (var index = 0; index < findingLabels.Count && index < findings.Count; index++)
@@ -545,6 +545,22 @@ public partial class MainWindow : Window
             findingLabels[index] =
                 $"{BlindDisplayLabel(finding.Label)} · {finding.Severity} · {finding.Title} — {finding.Reference}";
         }
+        ReportText.Text = string.Join(Environment.NewLine, columns.Select(column =>
+            $"{(BlindModeToggle.IsChecked == true ? $"Patch {BlindDisplayLabel(column.Label)}" : $"{column.Label} — {column.SourceName}")}: {column.Applied?.Report.Clean ?? 0} clean, " +
+            $"{column.Applied?.Report.Fuzz ?? 0} fuzz, {column.Applied?.Report.Failed ?? 0} failed, " +
+            $"{column.Applied?.Report.Binary ?? 0} binary"));
+    }
+
+    private void PopulateGoldenPicker()
+    {
+        var selectedLabel = golden;
+        GoldenPicker.Items.Clear();
+        GoldenPicker.Items.Add("None");
+        foreach (var column in columns)
+            GoldenPicker.Items.Add(BlindModeToggle.IsChecked == true
+                ? $"Patch {BlindDisplayLabel(column.Label)}"
+                : $"{column.Label} — {column.SourceName}");
+        GoldenPicker.SelectedIndex = columns.FindIndex(column => column.Label == selectedLabel) + 1;
     }
 
     private string BlindDisplayLabel(string label)
