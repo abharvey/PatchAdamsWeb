@@ -22,6 +22,9 @@ var tests = new (string Name, Action Run)[]
     ("patience diff anchors unique lines around reordered blocks", DiffEngineTests.PatienceDiffRetainsMovedAnchors),
     ("token similarity ignores whitespace", DiffEngineTests.TokenSimilarityIgnoresWhitespace),
     ("alignment classifies exact, modified, moved, and absent regions", AlignmentTests.ClassifiesRegions),
+    ("session packages round-trip patches and review state", SessionTests.PackageRoundTripsState),
+    ("blind export reveals its mapping only at the end", SessionTests.BlindExportRevealsMappingLast),
+    ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -203,6 +206,79 @@ static class FixtureTests
         }
 
         throw new DirectoryNotFoundException("Could not locate Fixtures/patches from the test output directory.");
+    }
+}
+
+static class SessionTests
+{
+    public static void PackageRoundTripsState()
+    {
+        using var temporary = new TemporaryDirectory();
+        var session = CreateSession(blind: false);
+        SessionPackage.Write(new SessionContents(session,
+            new Dictionary<string, string> { ["A"] = "diff A", ["B"] = "diff B" }), temporary.Path);
+        var loaded = SessionPackage.Read(temporary.Path);
+
+        Assert.Equal(2, loaded.Session.Columns.Count, "restored columns");
+        Assert.Equal("A-patch-a.diff", loaded.Session.Columns[0].PatchFile, "safe copied patch name");
+        Assert.Equal("diff A", loaded.PatchTexts["A"], "restored patch text");
+        Assert.Equal("main.cs L4:L6", loaded.Session.Findings.Single().Reference, "restored finding reference");
+        Assert.Equal(2, loaded.Session.Pins.Count, "restored pins");
+        Assert.Equal(2, loaded.Session.ManualAnchors.Count, "restored anchors");
+        Assert.Equal("quality first", loaded.Session.Ranking.Rationale, "restored ranking");
+    }
+
+    public static void BlindExportRevealsMappingLast()
+    {
+        var markdown = MarkdownExport.Render(CreateSession(blind: true),
+            new DateTimeOffset(2026, 11, 2, 0, 0, 0, TimeSpan.Zero));
+        var mapping = markdown.IndexOf("## Mapping", StringComparison.Ordinal);
+        Assert.True(mapping > markdown.IndexOf("## Rationale", StringComparison.Ordinal), "mapping appears after rationale");
+        Assert.True(!markdown.Contains("patch-a.diff", StringComparison.Ordinal) ||
+                    markdown.LastIndexOf("patch-a.diff", StringComparison.Ordinal) > mapping,
+            "patch source names stay hidden until mapping");
+        Assert.Contains("| Rank | Patch |", markdown, "blind ranking header");
+
+        var json = System.Text.Encoding.UTF8.GetString(MarkdownExport.RenderJson(CreateSession(blind: true)));
+        Assert.Contains("\"blindMapping\"", json, "blind mapping in JSON export");
+        Assert.Contains("\"confidence\"", json, "finding anchor confidence in JSON export");
+    }
+
+    public static void ReferenceIsGeneratedFromSelection()
+    {
+        var change = new FileChange("src/main.cs", "src/main.cs", FileChangeKind.Modified,
+            null, null, null, false, []);
+        var file = new AppliedFile(change, "one\ntwo\n", "one\ntwo\n",
+            new ApplyStatus(ApplyStatusKind.Clean), new LineMap([1, 2], [1, 2]), []);
+        Assert.Equal("main.cs L1:L2", ReferenceGenerator.ForSelection(file, 1, 2), "generated file-name-only reference");
+        Assert.Throws<ArgumentOutOfRangeException>(() => ReferenceGenerator.ForSelection(file, 0, 2),
+            "invalid selection rejected");
+    }
+
+    private static ReviewSession CreateSession(bool blind)
+    {
+        var now = new DateTimeOffset(2026, 11, 2, 10, 0, 0, TimeSpan.Zero);
+        var finding = new SessionFinding(Guid.NewGuid(), "A", "src/main.cs",
+            new LineSpan(4, 6), "main.cs L4:L6", "Unnecessary helper", "Avoid the helper.",
+            "unnecessary helpers", FindingSeverity.Material, RequestRelevance.No, false, "correctness note",
+            [new FindingAnchor("B", "modified", 0.83, "main.cs L5:L7")], now);
+        return new ReviewSession(ReviewSession.CurrentVersion, "Review", "Implement a feature",
+            new SessionBase("directory", Path: @"C:\source"),
+            [
+                new SessionColumn("A", "patch-a.diff", "", IsRead: true),
+                new SessionColumn("B", "patch-b.diff", "")
+            ],
+            "A", ReviewSession.DefaultCategories, [finding],
+            new SessionRanking(new Dictionary<string, int> { ["A"] = 1, ["B"] = 1 }, "quality first"),
+            [
+                new SessionPin(Guid.NewGuid(), "A", "src/main.cs", new LineSpan(4, 6), "main.cs L4:L6", "selected"),
+                new SessionPin(Guid.NewGuid(), "B", "src/main.cs", new LineSpan(5, 7), "main.cs L5:L7", "other")
+            ],
+            [
+                new ManualAnchor(Guid.NewGuid(), "A", "src/main.cs", new LineSpan(4, 6), "B", new LineSpan(5, 7)),
+                new ManualAnchor(Guid.NewGuid(), "B", "src/main.cs", new LineSpan(5, 7), "A", new LineSpan(4, 6))
+            ],
+            new BlindMode(blind, 773), now);
     }
 }
 
