@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private double fontSize = 13;
     private string? basePath;
     private string? baseRevision;
+    private string? baseCommit;
     private string baseKind = "synthetic";
     private string selectedPath = "";
     private Selection? selection;
@@ -52,6 +53,7 @@ public partial class MainWindow : Window
         basePath = dialog.FolderName;
         baseKind = "directory";
         baseRevision = null;
+        baseCommit = null;
         StatusText.Text = $"Base: {basePath}";
         ReloadPatches();
     }
@@ -67,6 +69,7 @@ public partial class MainWindow : Window
         basePath = dialog.FileName;
         baseKind = "archive";
         baseRevision = null;
+        baseCommit = null;
         StatusText.Text = $"Archive base: {basePath}";
         ReloadPatches();
     }
@@ -79,6 +82,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(revision)) return;
         basePath = folder.FolderName;
         baseRevision = revision.Trim();
+        baseCommit = null;
         baseKind = "gitRevision";
         StatusText.Text = $"Git base: {basePath}@{baseRevision}";
         ReloadPatches();
@@ -89,6 +93,7 @@ public partial class MainWindow : Window
         if (columns.Count == 0) return;
         basePath = null;
         baseRevision = null;
+        baseCommit = null;
         baseKind = "synthetic";
         ReloadPatches();
     }
@@ -154,6 +159,7 @@ public partial class MainWindow : Window
                 try
                 {
                     provider = BaseLoader.Open(basePath, baseRevision);
+                    baseCommit = (provider as GitRevisionFileProvider)?.Commit;
                 }
                 catch (Exception) when (!Directory.Exists(basePath) && !File.Exists(basePath))
                 {
@@ -161,6 +167,7 @@ public partial class MainWindow : Window
                         "synthetic base from the patches");
                     basePath = null;
                     baseRevision = null;
+                    baseCommit = null;
                     baseKind = "synthetic";
                     StatusText.Text = "The saved base is unavailable; rebuilt a synthetic base from the patches.";
                 }
@@ -749,7 +756,8 @@ public partial class MainWindow : Window
             foreach (var finding in findings)
                 findingLabels.Add($"{BlindDisplayLabel(finding.Label)} · {finding.Severity} · {finding.Title} — {finding.Reference}");
             basePath = contents.Session.Base.Path;
-            baseRevision = contents.Session.Base.Revision;
+            baseRevision = contents.Session.Base.Commit ?? contents.Session.Base.Revision;
+            baseCommit = contents.Session.Base.Commit;
             baseKind = contents.Session.Base.Kind;
             golden = contents.Session.Golden;
             ReloadPatches();
@@ -765,7 +773,7 @@ public partial class MainWindow : Window
     {
         var old = loadedSession;
         var baseInfo = new SessionBase(baseKind, Path: basePath,
-            Revision: baseRevision, Commit: old?.Base.Commit, Label: old?.Base.Label);
+            Revision: baseRevision, Commit: baseCommit, Label: old?.Base.Label);
         return new ReviewSession(ReviewSession.CurrentVersion, old?.Name ?? "Patch review", RequestBox.Text,
             baseInfo,
             columns.Select(column => new SessionColumn(column.Label, column.SourceName, "",

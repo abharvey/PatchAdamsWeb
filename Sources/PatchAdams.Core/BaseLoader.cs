@@ -58,7 +58,9 @@ public static class BaseLoader
             normalized = normalized[2..];
         return !string.IsNullOrWhiteSpace(normalized) &&
                normalized[0] != '/' &&
-               normalized.Split('/').All(part => part is not ".." and not ".");
+               !Path.IsPathRooted(normalized) &&
+               !normalized.Split('/').Any(part => part is ".." or "." || part.Contains(':')) &&
+               normalized.Split('/').All(part => part.Length > 0);
     }
 }
 
@@ -68,10 +70,13 @@ public sealed class GitRevisionFileProvider : IFileProvider
         ["rev-parse", "ls-tree", "cat-file", "--version"];
     private readonly string repository;
     private readonly string commit;
+    public string RequestedRevision { get; }
+    public string Commit => commit;
 
     public GitRevisionFileProvider(string repository, string revision)
     {
         this.repository = Path.GetFullPath(repository);
+        RequestedRevision = revision;
         if (!Directory.Exists(this.repository))
             throw new BaseLoaderException($"{this.repository}: no such repository directory");
         var resolved = Run(["rev-parse", "--verify", "--end-of-options", $"{revision}^{{commit}}"], this.repository);

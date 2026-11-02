@@ -579,9 +579,12 @@ static class BaseLoaderTests
         var archivePath = Path.Combine(temporary.Path, "unsafe.zip");
         using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
         {
-            var outside = archive.CreateEntry("../outside.txt");
-            using var writer = new StreamWriter(outside.Open());
-            writer.Write("not exposed");
+            foreach (var name in new[] { "../outside.txt", "C:/outside.txt" })
+            {
+                var outside = archive.CreateEntry(name);
+                using var writer = new StreamWriter(outside.Open());
+                writer.Write("not exposed");
+            }
         }
 
         var provider = BaseLoader.Open(archivePath);
