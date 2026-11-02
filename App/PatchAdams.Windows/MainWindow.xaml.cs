@@ -21,6 +21,8 @@ public partial class MainWindow : Window
     private readonly List<LoadedColumn> columns = [];
     private readonly Dictionary<string, TextBox> codeEditors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ComboBox> rankPickers = new(StringComparer.Ordinal);
+    private bool synchronizingScroll;
+    private double fontSize = 13;
     private string? basePath;
     private string? baseRevision;
     private string baseKind = "synthetic";
@@ -243,7 +245,7 @@ public partial class MainWindow : Window
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 FontFamily = new FontFamily("Consolas"),
-                FontSize = 13,
+                FontSize = fontSize,
                 Background = new SolidColorBrush(Color.FromRgb(15, 24, 39)),
                 Foreground = new SolidColorBrush(Color.FromRgb(221, 231, 242)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(49, 68, 95)),
@@ -251,6 +253,14 @@ public partial class MainWindow : Window
                 Padding = new Thickness(6)
             };
             editor.SelectionChanged += CodeSelectionChanged;
+            editor.Loaded += (_, _) =>
+            {
+                if (editor.Template.FindName("PART_ContentHost", editor) is ScrollViewer scrollViewer)
+                {
+                    scrollViewer.Tag = new EditorContext(column, appliedFile, displayLines, isGoldenDiff);
+                    scrollViewer.ScrollChanged += CodeScrollChanged;
+                }
+            };
             codeEditors[column.Label] = editor;
             panel.Children.Add(editor);
             Grid.SetColumn(panel, index);
@@ -325,6 +335,47 @@ public partial class MainWindow : Window
         }
     }
 
+    private void CodeScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (synchronizingScroll || ScrollLockToggle.IsChecked != true ||
+            sender is not ScrollViewer source || source.Tag is not EditorContext sourceContext ||
+            sourceContext.DisplayLines.Count == 0)
+            return;
+
+        var firstVisible = source.TemplatedParent is TextBox sourceEditor
+            ? sourceEditor.GetFirstVisibleLineIndex()
+            : (int)e.VerticalOffset;
+        var sourceRow = Math.Clamp(firstVisible, 0, sourceContext.DisplayLines.Count - 1);
+        var baseLine = sourceContext.DisplayLines[sourceRow].BaseLine ??
+                       sourceContext.DisplayLines.Take(sourceRow + 1)
+                           .LastOrDefault(line => line.BaseLine.HasValue)?.BaseLine;
+        if (baseLine is null) return;
+
+        synchronizingScroll = true;
+        try
+        {
+            foreach (var editor in codeEditors.Values)
+            {
+                if (editor.Template.FindName("PART_ContentHost", editor) is not ScrollViewer target ||
+                    ReferenceEquals(target, source))
+                    continue;
+                if (target.Tag is not EditorContext targetContext || targetContext.DisplayLines.Count == 0)
+                {
+                    editor.ScrollToLine(sourceRow);
+                    continue;
+                }
+                var targetRow = targetContext.DisplayLines.ToList()
+                    .FindIndex(line => line.BaseLine == baseLine);
+                if (targetRow >= 0)
+                    editor.ScrollToLine(targetRow);
+            }
+        }
+        finally
+        {
+            synchronizingScroll = false;
+        }
+    }
+
     private void GoldenPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (GoldenPicker.SelectedIndex < 0) return;
@@ -383,6 +434,71 @@ public partial class MainWindow : Window
     private void SearchBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter) Search_Click(sender, e);
+    }
+
+    private void CopyReference_Click(object sender, RoutedEventArgs e)
+    {
+        if (selection is null) return;
+        Clipboard.SetText(selection.Reference);
+        StatusText.Text = $"Copied {selection.Reference}";
+    }
+
+    private void SmallerFont_Click(object sender, RoutedEventArgs e)
+    {
+        fontSize = Math.Max(9, fontSize - 1);
+        RenderColumns();
+    }
+
+    private void LargerFont_Click(object sender, RoutedEventArgs e)
+    {
+        fontSize = Math.Min(24, fontSize + 1);
+        RenderColumns();
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        var modifiers = Keyboard.Modifiers;
+        if (modifiers.HasFlag(ModifierKeys.Control) && modifiers.HasFlag(ModifierKeys.Shift) &&
+            TryColumnNumber(e.Key, out var goldenIndex))
+        {
+            GoldenPicker.SelectedIndex = golden == columns.ElementAtOrDefault(goldenIndex)?.Label
+                ? 0
+                : goldenIndex + 1;
+            e.Handled = true;
+            return;
+        }
+        if (!modifiers.HasFlag(ModifierKeys.Control)) return;
+        switch (e.Key)
+        {
+            case Key.S: SaveSession_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.F: SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; break;
+            case Key.N: AddFinding_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.P: PinSelection_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.L: ScrollLockToggle.IsChecked = !ScrollLockToggle.IsChecked; e.Handled = true; break;
+            case Key.E when modifiers.HasFlag(ModifierKeys.Shift): Export(markdown: false); e.Handled = true; break;
+            case Key.E: Export(markdown: true); e.Handled = true; break;
+            case Key.C when modifiers.HasFlag(ModifierKeys.Shift): CopyReference_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            default:
+                if (TryColumnNumber(e.Key, out var columnIndex) && columnIndex < columns.Count)
+                {
+                    codeEditors[columns[columnIndex].Label].Focus();
+                    e.Handled = true;
+                }
+                break;
+        }
+    }
+
+    private static bool TryColumnNumber(Key key, out int index)
+    {
+        index = key switch
+        {
+            Key.D1 or Key.NumPad1 => 0,
+            Key.D2 or Key.NumPad2 => 1,
+            Key.D3 or Key.NumPad3 => 2,
+            Key.D4 or Key.NumPad4 => 3,
+            _ => -1
+        };
+        return index >= 0;
     }
 
     private void Search_Click(object sender, RoutedEventArgs e)
@@ -474,6 +590,20 @@ public partial class MainWindow : Window
         pins.Add(new SessionPin(Guid.NewGuid(), selection.Column.Label, selection.File.Path,
             new LineSpan(selection.Start, selection.End), selection.Reference, selection.Snippet));
         StatusText.Text = "Selection pinned.";
+    }
+
+    private void FindingsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var index = FindingsList.SelectedIndex;
+        if (index < 0 || index >= findings.Count) return;
+        var finding = findings[index];
+        selectedPath = finding.Path;
+        RenderColumns();
+        if (!codeEditors.TryGetValue(finding.Label, out var editor) || editor.Tag is not EditorContext context)
+            return;
+        var line = context.DisplayLines.ToList().FindIndex(displayLine =>
+            displayLine.PostLine == finding.Lines.Lower || displayLine.BaseLine == finding.Lines.Lower);
+        if (line >= 0) editor.ScrollToLine(line);
     }
 
     private void CorrectAnchor_Click(object sender, RoutedEventArgs e)
