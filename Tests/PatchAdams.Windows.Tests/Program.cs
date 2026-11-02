@@ -21,6 +21,7 @@ var tests = new (string Name, Action Run)[]
     ("Myers diff replays deterministic randomized inputs", DiffEngineTests.MyersReplaysRandomizedInputs),
     ("patience diff anchors unique lines around reordered blocks", DiffEngineTests.PatienceDiffRetainsMovedAnchors),
     ("token similarity ignores whitespace", DiffEngineTests.TokenSimilarityIgnoresWhitespace),
+    ("alignment classifies exact, modified, moved, and absent regions", AlignmentTests.ClassifiesRegions),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -202,6 +203,46 @@ static class FixtureTests
         }
 
         throw new DirectoryNotFoundException("Could not locate Fixtures/patches from the test output directory.");
+    }
+}
+
+static class AlignmentTests
+{
+    public static void ClassifiesRegions()
+    {
+        var exactSource = Applied("first\nvalue = 1\nlast\n", [1, 2, 3], [1, 2, 3]);
+        var exactTarget = Applied("first\nvalue = 1\nlast\n", [1, 2, 3], [1, 2, 3]);
+        Assert.Equal(AlignmentStatus.Exact,
+            AlignmentEngine.Locate(new Region("file.cs", 2, 2), exactSource, exactTarget).Status,
+            "exact alignment");
+
+        var modifiedTarget = Applied("first\nvalue = 2\nlast\n", [1, null, 3], [1, 3]);
+        var modified = AlignmentEngine.Locate(new Region("file.cs", 2, 2),
+            Applied("first\nvalue = 1\nlast\n", [1, null, 3], [1, 3]), modifiedTarget);
+        Assert.Equal(AlignmentStatus.Modified, modified.Status, "modified alignment");
+
+        var movedTarget = Applied("first\nlast\nvalue = 1\n", [1, 2, 3], [1, 2, 3]);
+        var moved = AlignmentEngine.Locate(new Region("file.cs", 2, 2),
+            Applied("first\nvalue = 1\nlast\n", [1, null, 3], [1, 3]), movedTarget);
+        Assert.Equal(AlignmentStatus.Moved, moved.Status, "moved alignment");
+        Assert.Equal(3, moved.StartLine, "moved destination");
+
+        var absent = AlignmentEngine.Locate(new Region("file.cs", 2, 2),
+            Applied("first\nvalue = 1\nlast\n", [1, null, 3], [1, 3]),
+            Applied("first\nother\nlast\n", [1, 2, 3], [1, 2, 3],
+                [new HunkPlacement(0, 2, 2, 2, 0, 1)]));
+        Assert.Equal(AlignmentStatus.Absent, absent.Status, "absent alignment");
+        Assert.Equal("file.cs", absent.NearestHunkPath, "nearest hunk path");
+    }
+
+    private static AppliedFile Applied(string postText, int?[] postToBase, int?[] baseToPost,
+        IReadOnlyList<HunkPlacement>? hunks = null)
+    {
+        var change = new FileChange("file.cs", "file.cs", FileChangeKind.Modified,
+            null, null, null, false, []);
+        return new AppliedFile(change, "first\nvalue = 1\nlast\n", postText,
+            new ApplyStatus(ApplyStatusKind.Clean),
+            new LineMap(postToBase, baseToPost), hunks ?? []);
     }
 }
 
