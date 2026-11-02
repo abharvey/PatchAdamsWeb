@@ -1,0 +1,32 @@
+<Window x:Class="PatchAdamsSharp.FindingDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="New finding" SizeToContent="WidthAndHeight" WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize" Background="#18263B" Foreground="#E7EDF5">
+    <Grid Margin="16" Width="420">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="ReferenceLabel" Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,10"/>
+        <TextBox x:Name="TitleBox" Grid.Row="1" Margin="0,0,0,8" ToolTip="Finding title"/>
+        <ComboBox x:Name="CategoryBox" Grid.Row="2" Margin="0,0,0,8">
+            <ComboBoxItem Content="unnecessary helpers"/><ComboBoxItem Content="excessive defensiveness"/>
+            <ComboBoxItem Content="unnecessary machinery or repeated work"/><ComboBoxItem Content="duplicated logic or state"/>
+            <ComboBoxItem Content="too many branches"/><ComboBoxItem Content="unclear code"/>
+            <ComboBoxItem Content="unhelpful comments or names"/><ComboBoxItem Content="code in the wrong place"/>
+            <ComboBoxItem Content="unneeded backwards compatibility"/><ComboBoxItem Content="dead or unrelated code"/>
+            <ComboBoxItem Content="premature extensibility"/><ComboBoxItem Content="low-value tests"/><ComboBoxItem Content="other"/>
+        </ComboBox>
+        <ComboBox x:Name="SeverityBox" Grid.Row="3" Margin="0,0,0,8">
+            <ComboBoxItem Content="trivial"/><ComboBoxItem Content="minor"/>
+            <ComboBoxItem Content="material"/><ComboBoxItem Content="blocking"/>
+        </ComboBox>
+        <TextBox x:Name="DescriptionBox" Grid.Row="4" Height="90" AcceptsReturn="True"
+                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancel" IsCancel="True"/>
+            <Button Content="Save" IsDefault="True" Click="Save_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
