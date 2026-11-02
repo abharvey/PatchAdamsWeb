@@ -11,6 +11,7 @@ var tests = new (string Name, Action Run)[]
     ("strict parser parses every fixture", FixtureTests.ParserParsesEveryFixture),
     ("format-patch mail metadata and body are preserved", FixtureTests.MailHeaderPreservesBody),
     ("added, deleted, binary, rename, and mode-change headers parse", FixtureTests.FileMetadataParses),
+    ("test-file heuristic filters common test paths", FixtureTests.TestPathsAreRecognized),
     ("quoted paths containing spaces parse", FixtureTests.QuotedPathsParse),
     ("strict parser reports malformed hunk line", FixtureTests.MalformedHunkReportsItsLine),
     ("directory bases read files without escaping their root", BaseLoaderTests.DirectoryReadsAndContainsPaths),
@@ -223,6 +224,15 @@ static class FixtureTests
         var change = UnifiedDiffParser.Parse(diff).Files.Single();
         Assert.Equal("source file.txt", change.Path, "quoted path");
         Assert.Equal("source file.txt", change.FileName, "quoted file name");
+    }
+
+    public static void TestPathsAreRecognized()
+    {
+        Assert.True(FileChange.IsTestPath("tests/billing/test_ledger.py"), "tests directory path");
+        Assert.True(FileChange.IsTestPath("internal/pathutil/pathutil_test.go"), "Go test suffix");
+        Assert.True(FileChange.IsTestPath("src/review.test.ts"), "TypeScript test suffix");
+        Assert.True(!FileChange.IsTestPath("src/testutils/runner.cs"), "testutils is not a test folder");
+        Assert.True(!FileChange.IsTestPath("src/main.go"), "ordinary source file");
     }
 
     public static void MalformedHunkReportsItsLine()

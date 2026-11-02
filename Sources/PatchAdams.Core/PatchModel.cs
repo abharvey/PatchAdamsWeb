@@ -26,6 +26,25 @@ public sealed record FileChange(
     public string Path => NewPath ?? OldPath ?? "";
 
     public string FileName => Path.Replace('\\', '/').Split('/').LastOrDefault() ?? "";
+
+    public bool IsTest => IsTestPath(Path);
+
+    public static bool IsTestPath(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        var components = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (components.Any(component => component.Equals("test", StringComparison.OrdinalIgnoreCase) ||
+                                        component.Equals("tests", StringComparison.OrdinalIgnoreCase) ||
+                                        component.Equals("spec", StringComparison.OrdinalIgnoreCase) ||
+                                        component.Equals("specs", StringComparison.OrdinalIgnoreCase)))
+            return true;
+        var name = components.LastOrDefault() ?? "";
+        var stem = System.IO.Path.GetFileNameWithoutExtension(name);
+        return stem.EndsWith("_test", StringComparison.OrdinalIgnoreCase) ||
+               stem.EndsWith(".test", StringComparison.OrdinalIgnoreCase) ||
+               stem.EndsWith(".spec", StringComparison.OrdinalIgnoreCase) ||
+               stem.StartsWith("test_", StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 public sealed record Hunk(

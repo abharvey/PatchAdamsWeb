@@ -12,6 +12,7 @@ namespace PatchAdamsSharp;
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<FileTreeEntry> files = [];
+    private readonly ObservableCollection<FileTreeEntry> visibleFiles = [];
     private readonly ObservableCollection<string> findingLabels = [];
     private readonly ObservableCollection<SessionPin> pins = [];
     private readonly ObservableCollection<ComparisonEntry> comparisons = [];
@@ -47,7 +48,7 @@ public partial class MainWindow : Window
         fontFamily = preferences.FontFamily;
         fontSize = Math.Clamp(preferences.FontSize, 9, 24);
         askBlindModeOnNewSession = preferences.AskBlindModeOnNewSession;
-        FileTree.ItemsSource = files;
+        FileTree.ItemsSource = visibleFiles;
         FindingsList.ItemsSource = findingLabels;
         PinsList.ItemsSource = pins;
         ComparisonList.ItemsSource = comparisons;
@@ -305,8 +306,10 @@ public partial class MainWindow : Window
                 {
                     return $"{BlindDisplayLabel(column.Label)}:{StatusForColumn(column, path)}";
                 });
-                files.Add(new FileTreeEntry(path, string.Join("  ", statuses)));
+                files.Add(new FileTreeEntry(path, string.Join("  ", statuses),
+                    FileChange.IsTestPath(path)));
             }
+            RefreshFileTree();
 
             if (result.UsedFallback)
                 StatusText.Text = "The saved base is unavailable; rebuilt a synthetic base from the patches.";
@@ -316,9 +319,9 @@ public partial class MainWindow : Window
                 $"{column.Applied.Report.Fuzz} fuzz, {column.Applied.Report.Failed} failed, " +
                 $"{column.Applied.Report.Binary} binary"));
             RenderColumns();
-            if (files.Count > 0)
+            if (visibleFiles.Count > 0)
             {
-                selectedPath = files[0].Path;
+                selectedPath = visibleFiles[0].Path;
                 RenderColumns();
             }
             RenderRanking();
@@ -334,6 +337,24 @@ public partial class MainWindow : Window
         selectedPath = (e.NewValue as FileTreeEntry)?.Path ?? "";
         recentSelections.Clear();
         RenderColumns();
+    }
+
+    private void TestsOnly_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsInitialized) return;
+        RefreshFileTree();
+    }
+
+    private void RefreshFileTree()
+    {
+        visibleFiles.Clear();
+        foreach (var file in files.Where(file => TestsOnlyToggle.IsChecked != true || file.IsTest))
+            visibleFiles.Add(file);
+        if (!visibleFiles.Any(file => file.Path == selectedPath) && visibleFiles.Count > 0)
+        {
+            selectedPath = visibleFiles[0].Path;
+            RenderColumns();
+        }
     }
 
     private AppliedFile? ColumnFile(LoadedColumn column, string path)
@@ -1156,7 +1177,7 @@ public partial class MainWindow : Window
         public bool IsRead { get; set; }
     }
 
-    private sealed record FileTreeEntry(string Path, string Statuses)
+    private sealed record FileTreeEntry(string Path, string Statuses, bool IsTest)
     {
         public string DisplayText => $"{Path}  [{Statuses}]";
     }

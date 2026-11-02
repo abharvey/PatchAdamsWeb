@@ -38,6 +38,8 @@ tests of the current engines and implementation tests for the Windows app.
 - Selecting a file opens it in every column. Columns show the full
   post-patch file, additions, removals, and unchanged context. Removed lines
   can be collapsed.
+- Filter the shared tree to test-related files without dropping other files
+  from the session.
 - Show both base and post-patch line numbers. Added lines map to their base
   context; references for removed lines use base line numbers and a `-L`
   prefix.

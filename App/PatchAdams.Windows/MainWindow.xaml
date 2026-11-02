@@ -55,7 +55,11 @@
             </Grid.ColumnDefinitions>
             <Border Grid.Column="0" BorderBrush="#31445F" BorderThickness="0,0,1,0" Padding="6">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Files" FontWeight="Bold" Margin="6"/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6">
+                        <TextBlock Text="Files" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <CheckBox x:Name="TestsOnlyToggle" Content="Tests only" Margin="12,0,0,0"
+                                  VerticalAlignment="Center" Checked="TestsOnly_Changed" Unchecked="TestsOnly_Changed"/>
+                    </StackPanel>
                     <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_SelectedItemChanged"
                               Background="#101A2B" Foreground="#E7EDF5" BorderThickness="0">
                         <TreeView.ItemTemplate>
