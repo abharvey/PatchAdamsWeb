@@ -36,6 +36,8 @@ public partial class MainWindow : Window
     private string? golden;
     private ReviewSession? loadedSession;
     private ulong blindSeed = unchecked((ulong)Random.Shared.NextInt64());
+    private int reloadGeneration;
+    private int patchLoadGeneration;
 
     public MainWindow()
     {
@@ -53,7 +55,7 @@ public partial class MainWindow : Window
         GoldenPicker.SelectedIndex = 0;
     }
 
-    private void ChooseBase_Click(object sender, RoutedEventArgs e)
+    private async void ChooseBase_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "Choose the patch base directory" };
         if (dialog.ShowDialog(this) != true) return;
@@ -62,10 +64,10 @@ public partial class MainWindow : Window
         baseRevision = null;
         baseCommit = null;
         StatusText.Text = $"Base: {basePath}";
-        ReloadPatches();
+        await ReloadPatchesAsync();
     }
 
-    private void ChooseArchive_Click(object sender, RoutedEventArgs e)
+    private async void ChooseArchive_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
@@ -78,10 +80,10 @@ public partial class MainWindow : Window
         baseRevision = null;
         baseCommit = null;
         StatusText.Text = $"Archive base: {basePath}";
-        ReloadPatches();
+        await ReloadPatchesAsync();
     }
 
-    private void ChooseGitRevision_Click(object sender, RoutedEventArgs e)
+    private async void ChooseGitRevision_Click(object sender, RoutedEventArgs e)
     {
         var folder = new OpenFolderDialog { Title = "Choose a local Git repository" };
         if (folder.ShowDialog(this) != true) return;
@@ -92,20 +94,20 @@ public partial class MainWindow : Window
         baseCommit = null;
         baseKind = "gitRevision";
         StatusText.Text = $"Git base: {basePath}@{baseRevision}";
-        ReloadPatches();
+        await ReloadPatchesAsync();
     }
 
-    private void RebuildSyntheticBase_Click(object sender, RoutedEventArgs e)
+    private async void RebuildSyntheticBase_Click(object sender, RoutedEventArgs e)
     {
         if (columns.Count == 0) return;
         basePath = null;
         baseRevision = null;
         baseCommit = null;
         baseKind = "synthetic";
-        ReloadPatches();
+        await ReloadPatchesAsync();
     }
 
-    private void AddPatches_Click(object sender, RoutedEventArgs e)
+    private async void AddPatches_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
@@ -121,13 +123,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        LoadPatchFiles(dialog.FileNames);
+        await LoadPatchFilesAsync(dialog.FileNames);
     }
 
-    private void LoadPatchFiles(IReadOnlyList<string> paths)
+    private async Task LoadPatchFilesAsync(IReadOnlyList<string> paths)
     {
+        var generation = ++patchLoadGeneration;
         try
         {
+            var labels = new[] { "A", "B", "C", "D" };
+            var loaded = await Task.Run(() => paths.Select((path, index) =>
+            {
+                var text = File.ReadAllText(path);
+                return new LoadedColumn(labels[index], Path.GetFileName(path), text, UnifiedDiffParser.Parse(text));
+            }).ToArray());
+            if (generation != patchLoadGeneration) return;
             columns.Clear();
             findings.Clear();
             categories.Clear();
@@ -136,16 +146,9 @@ public partial class MainWindow : Window
             pins.Clear();
             findingLabels.Clear();
             loadedSession = null;
-            var labels = new[] { "A", "B", "C", "D" };
-            for (var index = 0; index < paths.Count; index++)
-            {
-                var path = paths[index];
-                var text = File.ReadAllText(path);
-                var patch = UnifiedDiffParser.Parse(text);
-                columns.Add(new LoadedColumn(labels[index], Path.GetFileName(path), text, patch));
-            }
+            columns.AddRange(loaded);
             golden = null;
-            ReloadPatches();
+            await ReloadPatchesAsync();
             StatusText.Text = $"{columns.Count} patches loaded.";
             AskBlindModeOnce();
         }
@@ -161,7 +164,7 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void MainWindow_Drop(object sender, DragEventArgs e)
+    private async void MainWindow_Drop(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
         var patches = paths.Where(path =>
@@ -173,10 +176,10 @@ public partial class MainWindow : Window
                 "PatchAdams#", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        LoadPatchFiles(patches);
+        await LoadPatchFilesAsync(patches);
     }
 
-    private void PastePatch_Click(object sender, RoutedEventArgs e)
+    private async void PastePatch_Click(object sender, RoutedEventArgs e)
     {
         if (columns.Count is < 2 or >= 4)
         {
@@ -193,12 +196,12 @@ public partial class MainWindow : Window
         try
         {
             var text = Clipboard.GetText();
-            var patch = UnifiedDiffParser.Parse(text);
+            var patch = await Task.Run(() => UnifiedDiffParser.Parse(text));
             var label = new[] { "A", "B", "C", "D" }.First(candidate =>
                 columns.All(column => column.Label != candidate));
             columns.Add(new LoadedColumn(label, "pasted patch", text, patch));
             loadedSession = null;
-            ReloadPatches();
+            await ReloadPatchesAsync();
             StatusText.Text = $"Patch {BlindDisplayLabel(label)} pasted.";
         }
         catch (Exception error)
@@ -207,38 +210,65 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ReloadPatches()
+    private async Task ReloadPatchesAsync()
     {
         if (columns.Count == 0) return;
+        var generation = ++reloadGeneration;
+        var inputs = columns.ToArray();
+        var requestedPath = basePath;
+        var requestedRevision = baseRevision;
+        var requestedKind = baseKind;
+        StatusText.Text = "Loading base and applying patches…";
         try
         {
-            IFileProvider provider;
-            if (basePath is null)
+            var result = await Task.Run(() =>
             {
-                provider = new InMemoryFileProvider(SyntheticBase.Merge(columns.Select(column => column.Patch)),
-                    "synthetic base from the patches");
-                baseKind = "synthetic";
-            }
-            else
-            {
-                try
+                string? resolvedPath = requestedPath;
+                string? resolvedRevision = requestedRevision;
+                string? resolvedCommit = null;
+                var resolvedKind = requestedKind;
+                var usedFallback = false;
+                IFileProvider provider;
+                if (requestedPath is null)
                 {
-                    provider = BaseLoader.Open(basePath, baseRevision);
-                    baseCommit = (provider as GitRevisionFileProvider)?.Commit;
-                }
-                catch (Exception) when (!Directory.Exists(basePath) && !File.Exists(basePath))
-                {
-                    provider = new InMemoryFileProvider(SyntheticBase.Merge(columns.Select(column => column.Patch)),
+                    provider = new InMemoryFileProvider(SyntheticBase.Merge(inputs.Select(column => column.Patch)),
                         "synthetic base from the patches");
-                    basePath = null;
-                    baseRevision = null;
-                    baseCommit = null;
-                    baseKind = "synthetic";
-                    StatusText.Text = "The saved base is unavailable; rebuilt a synthetic base from the patches.";
+                    resolvedKind = "synthetic";
                 }
-            }
-            foreach (var column in columns)
-                column.Applied = ApplyEngine.Apply(column.Patch, provider);
+                else
+                {
+                    try
+                    {
+                        provider = BaseLoader.Open(requestedPath, requestedRevision);
+                        if (provider is GitRevisionFileProvider git)
+                        {
+                            resolvedCommit = git.Commit;
+                            resolvedRevision = git.RequestedRevision;
+                        }
+                    }
+                    catch (Exception) when (!Directory.Exists(requestedPath) && !File.Exists(requestedPath))
+                    {
+                        provider = new InMemoryFileProvider(SyntheticBase.Merge(inputs.Select(column => column.Patch)),
+                            "synthetic base from the patches");
+                        resolvedPath = null;
+                        resolvedRevision = null;
+                        resolvedCommit = null;
+                        resolvedKind = "synthetic";
+                        usedFallback = true;
+                    }
+                }
+                var applied = inputs.Select(column => ApplyEngine.Apply(column.Patch, provider)).ToArray();
+                return (Applied: applied, Path: resolvedPath, Revision: resolvedRevision,
+                    Commit: resolvedCommit, Kind: resolvedKind, UsedFallback: usedFallback);
+            });
+            if (generation != reloadGeneration || !inputs.SequenceEqual(columns))
+                return;
+            basePath = result.Path;
+            baseRevision = result.Revision;
+            baseCommit = result.Commit;
+            baseKind = result.Kind;
+            for (var index = 0; index < inputs.Length; index++)
+                inputs[index].Applied = result.Applied[index];
             files.Clear();
             foreach (var path in columns.SelectMany(column => column.Applied!.Files).Select(file => file.Path)
                          .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
@@ -251,6 +281,8 @@ public partial class MainWindow : Window
                 files.Add(new FileTreeEntry(path, string.Join("  ", statuses)));
             }
 
+            if (result.UsedFallback)
+                StatusText.Text = "The saved base is unavailable; rebuilt a synthetic base from the patches.";
             PopulateGoldenPicker();
             ReportText.Text = string.Join(Environment.NewLine, columns.Select(column =>
                 $"{(BlindModeToggle.IsChecked == true ? $"Patch {BlindDisplayLabel(column.Label)}" : $"{column.Label} — {column.SourceName}")}: {column.Applied!.Report.Clean} clean, " +
@@ -949,13 +981,22 @@ public partial class MainWindow : Window
         if (row >= 0) editor.ScrollToRow(row);
     }
 
-    private void OpenSession_Click(object sender, RoutedEventArgs e)
+    private async void OpenSession_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "Open a .patchadam session folder" };
         if (dialog.ShowDialog(this) != true) return;
         try
         {
-            var contents = SessionPackage.Read(dialog.FolderName);
+            var contents = await Task.Run(() => SessionPackage.Read(dialog.FolderName));
+            var restoredColumns = await Task.Run(() => contents.Session.Columns.Select(column =>
+            {
+                var text = contents.PatchTexts[column.Label];
+                return new LoadedColumn(column.Label, column.SourceName, text, UnifiedDiffParser.Parse(text))
+                {
+                    IsHidden = column.IsHidden,
+                    IsRead = column.IsRead
+                };
+            }).ToArray());
             columns.Clear();
             findings.Clear();
             findingLabels.Clear();
@@ -968,15 +1009,7 @@ public partial class MainWindow : Window
             RationaleBox.Text = contents.Session.Ranking.Rationale;
             categories.Clear();
             categories.AddRange(contents.Session.Categories);
-            foreach (var column in contents.Session.Columns)
-            {
-                var text = contents.PatchTexts[column.Label];
-                columns.Add(new LoadedColumn(column.Label, column.SourceName, text, UnifiedDiffParser.Parse(text))
-                {
-                    IsHidden = column.IsHidden,
-                    IsRead = column.IsRead
-                });
-            }
+            columns.AddRange(restoredColumns);
             findings.AddRange(contents.Session.Findings);
             foreach (var pin in contents.Session.Pins) pins.Add(pin);
             manualAnchors.AddRange(contents.Session.ManualAnchors);
@@ -987,7 +1020,7 @@ public partial class MainWindow : Window
             baseCommit = contents.Session.Base.Commit;
             baseKind = contents.Session.Base.Kind;
             golden = contents.Session.Golden;
-            ReloadPatches();
+            await ReloadPatchesAsync();
             StatusText.Text = $"Session loaded: {dialog.FolderName}";
         }
         catch (Exception error)
