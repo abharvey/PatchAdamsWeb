@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using System.IO.Compression;
+using System.Formats.Tar;
 using PatchAdams.Core;
 
 var tests = new (string Name, Action Run)[]
@@ -8,6 +10,10 @@ var tests = new (string Name, Action Run)[]
     ("rename fixture retains old path, new path, and similarity", FixtureTests.RenameMetadataRemainsPresent),
     ("strict parser parses every fixture", FixtureTests.ParserParsesEveryFixture),
     ("strict parser reports malformed hunk line", FixtureTests.MalformedHunkReportsItsLine),
+    ("directory bases read files without escaping their root", BaseLoaderTests.DirectoryReadsAndContainsPaths),
+    ("zip bases strip one common top-level folder", BaseLoaderTests.ZipStripsCommonPrefix),
+    ("tar and gzip tar bases expose text files", BaseLoaderTests.TarAndGzipTarExposeFiles),
+    ("archive paths cannot escape the archive root", BaseLoaderTests.ArchiveRejectsEscapingPath),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -192,6 +198,100 @@ static class FixtureTests
     }
 }
 
+static class BaseLoaderTests
+{
+    public static void DirectoryReadsAndContainsPaths()
+    {
+        using var temporary = new TemporaryDirectory();
+        Directory.CreateDirectory(Path.Combine(temporary.Path, "src"));
+        File.WriteAllText(Path.Combine(temporary.Path, "src", "main.cs"), "local source");
+        Directory.CreateDirectory(Path.Combine(temporary.Path, ".git"));
+        File.WriteAllText(Path.Combine(temporary.Path, ".git", "config"), "ignored");
+
+        var provider = new DirectoryFileProvider(temporary.Path);
+        Assert.Equal("local source", BaseText.Decode(provider.ReadFile("src/main.cs")!), "read directory file");
+        Assert.SequenceEqual(["src/main.cs"], provider.GetPaths(), "directory paths exclude .git");
+        Assert.Equal<byte[]?>(null, provider.ReadFile("missing.cs"), "missing file");
+        Assert.Throws<BaseLoaderException>(() => provider.ReadFile("../outside.txt"), "path traversal");
+    }
+
+    public static void ZipStripsCommonPrefix()
+    {
+        using var temporary = new TemporaryDirectory();
+        var archivePath = Path.Combine(temporary.Path, "base.zip");
+        using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+        {
+            var file = archive.CreateEntry("project/src/main.cs", CompressionLevel.Optimal);
+            using var writer = new StreamWriter(file.Open());
+            writer.Write("inside zip");
+        }
+
+        var provider = BaseLoader.Open(archivePath);
+        Assert.SequenceEqual(["src/main.cs"], provider.GetPaths(), "stripped zip paths");
+        Assert.Equal("inside zip", BaseText.Decode(provider.ReadFile("src/main.cs")!), "zip content");
+    }
+
+    public static void ArchiveRejectsEscapingPath()
+    {
+        using var temporary = new TemporaryDirectory();
+        var archivePath = Path.Combine(temporary.Path, "unsafe.zip");
+        using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+        {
+            var outside = archive.CreateEntry("../outside.txt");
+            using var writer = new StreamWriter(outside.Open());
+            writer.Write("not exposed");
+        }
+
+        var provider = BaseLoader.Open(archivePath);
+        Assert.Equal(0, provider.GetPaths().Count, "unsafe archive entry omitted");
+    }
+
+    public static void TarAndGzipTarExposeFiles()
+    {
+        using var temporary = new TemporaryDirectory();
+        var tarBytes = CreateTar("repository/src/main.cs", "from tar");
+        var tarPath = Path.Combine(temporary.Path, "base.tar");
+        File.WriteAllBytes(tarPath, tarBytes);
+        var tarProvider = BaseLoader.Open(tarPath);
+        Assert.Equal("from tar", BaseText.Decode(tarProvider.ReadFile("src/main.cs")!), "tar content");
+
+        var gzipPath = Path.Combine(temporary.Path, "base.tar.gz");
+        using (var file = File.Create(gzipPath))
+        using (var gzip = new GZipStream(file, CompressionMode.Compress))
+            gzip.Write(tarBytes);
+        var gzipProvider = BaseLoader.Open(gzipPath);
+        Assert.Equal("from tar", BaseText.Decode(gzipProvider.ReadFile("src/main.cs")!), "gzip tar content");
+    }
+
+    private static byte[] CreateTar(string path, string text)
+    {
+        using var output = new MemoryStream();
+        using (var writer = new TarWriter(output, leaveOpen: true))
+        {
+            var entry = new PaxTarEntry(TarEntryType.RegularFile, path)
+            {
+                DataStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text))
+            };
+            writer.WriteEntry(entry);
+        }
+        return output.ToArray();
+    }
+}
+
+sealed class TemporaryDirectory : IDisposable
+{
+    public string Path { get; } = System.IO.Path.Combine(
+        System.IO.Path.GetTempPath(), "patchadams-tests-" + Guid.NewGuid().ToString("N"));
+
+    public TemporaryDirectory() => Directory.CreateDirectory(Path);
+
+    public void Dispose()
+    {
+        if (Directory.Exists(Path))
+            Directory.Delete(Path, recursive: true);
+    }
+}
+
 static class FeatureContractTests
 {
     public static void SafetyContractRemainsExplicit()
@@ -226,5 +326,18 @@ static class Assert
     {
         if (!actual.Contains(expected, StringComparison.Ordinal))
             throw new InvalidOperationException($"{context}: missing '{expected}'.");
+    }
+
+    public static void Throws<TException>(Action action, string context) where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+        throw new InvalidOperationException($"{context}: expected {typeof(TException).Name}.");
     }
 }

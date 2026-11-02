@@ -1,0 +1,205 @@
+using System.Formats.Tar;
+using System.IO.Compression;
+using System.Text;
+
+namespace PatchAdams.Core;
+
+public sealed record BaseOrigin(string Kind, string Location);
+
+public interface IFileProvider
+{
+    BaseOrigin Origin { get; }
+    byte[]? ReadFile(string path);
+    IReadOnlyList<string> GetPaths();
+}
+
+public sealed class BaseLoaderException(string message) : Exception(message);
+
+public static class BaseLoader
+{
+    public static IFileProvider Open(string path, string? revision = null)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (Directory.Exists(fullPath))
+        {
+            if (revision is not null)
+                throw new NotSupportedException("Git revision bases are not available yet.");
+            return new DirectoryFileProvider(fullPath);
+        }
+        if (!File.Exists(fullPath))
+            throw new BaseLoaderException($"{fullPath}: no such file or directory");
+        if (revision is not null)
+            throw new BaseLoaderException("A revision requires a Git repository directory.");
+
+        return Path.GetExtension(fullPath).ToLowerInvariant() switch
+        {
+            ".zip" => ArchiveFileProvider.FromZip(fullPath),
+            ".tar" => ArchiveFileProvider.FromTar(fullPath, gzip: false),
+            ".tgz" => ArchiveFileProvider.FromTar(fullPath, gzip: true),
+            _ when fullPath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) =>
+                ArchiveFileProvider.FromTar(fullPath, gzip: true),
+            _ => throw new BaseLoaderException($"{Path.GetFileName(fullPath)}: unsupported archive type")
+        };
+    }
+
+    internal static string ValidateRelativePath(string path)
+    {
+        if (string.IsNullOrEmpty(path) || Path.IsPathRooted(path) || path.Contains('\\') ||
+            path.Split('/').Any(part => part is "" or "." or ".."))
+            throw new BaseLoaderException($"invalid base path: {path}");
+        return path;
+    }
+
+    internal static bool IsSafeArchivePath(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        while (normalized.StartsWith("./", StringComparison.Ordinal))
+            normalized = normalized[2..];
+        return !string.IsNullOrWhiteSpace(normalized) &&
+               normalized[0] != '/' &&
+               normalized.Split('/').All(part => part is not ".." and not ".");
+    }
+}
+
+public sealed class DirectoryFileProvider : IFileProvider
+{
+    private readonly string root;
+    private readonly string rootPrefix;
+
+    public DirectoryFileProvider(string root)
+    {
+        this.root = Path.GetFullPath(root);
+        rootPrefix = this.root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        Origin = new BaseOrigin("directory", this.root);
+    }
+
+    public BaseOrigin Origin { get; }
+
+    public byte[]? ReadFile(string path)
+    {
+        path = BaseLoader.ValidateRelativePath(path);
+        var fullPath = Path.GetFullPath(Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)));
+        if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            throw new BaseLoaderException($"invalid base path: {path}");
+        RejectReparsePoints(fullPath);
+        return File.Exists(fullPath) ? File.ReadAllBytes(fullPath) : null;
+    }
+
+    public IReadOnlyList<string> GetPaths()
+    {
+        var paths = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
+            if (relative.Split('/').Contains(".git", StringComparer.Ordinal))
+                continue;
+            var attributes = File.GetAttributes(file);
+            if ((attributes & FileAttributes.ReparsePoint) == 0)
+                paths.Add(relative);
+        }
+        return paths.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private void RejectReparsePoints(string path)
+    {
+        var current = root;
+        foreach (var part in Path.GetRelativePath(root, path).Split(Path.DirectorySeparatorChar))
+        {
+            if (part.Length == 0 || part == ".")
+                continue;
+            current = Path.Combine(current, part);
+            if (!File.Exists(current) && !Directory.Exists(current))
+                continue;
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new BaseLoaderException($"base path traverses a symbolic link: {path}");
+        }
+    }
+}
+
+public sealed class ArchiveFileProvider : IFileProvider
+{
+    private readonly IReadOnlyDictionary<string, byte[]> files;
+
+    private ArchiveFileProvider(string path, IDictionary<string, byte[]> entries)
+    {
+        Origin = new BaseOrigin("archive", path);
+        var safe = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach (var (entryPath, data) in entries)
+        {
+            if (!BaseLoader.IsSafeArchivePath(entryPath))
+                continue;
+            var normalized = entryPath.Replace('\\', '/');
+            while (normalized.StartsWith("./", StringComparison.Ordinal))
+                normalized = normalized[2..];
+            safe[normalized] = data;
+        }
+        var prefixes = safe.Keys.Select(key => key.Split('/', 2)[0]).Distinct(StringComparer.Ordinal).ToArray();
+        var prefix = prefixes.Length == 1 && safe.Keys.All(key => key.StartsWith(prefixes[0] + "/", StringComparison.Ordinal))
+            ? prefixes[0] + "/"
+            : "";
+        files = safe.ToDictionary(
+            entry => prefix.Length == 0 ? entry.Key : entry.Key[prefix.Length..],
+            entry => entry.Value,
+            StringComparer.Ordinal);
+    }
+
+    public BaseOrigin Origin { get; }
+
+    public byte[]? ReadFile(string path)
+    {
+        path = BaseLoader.ValidateRelativePath(path);
+        return files.TryGetValue(path, out var data) ? data : null;
+    }
+
+    public IReadOnlyList<string> GetPaths() => files.Keys.Order(StringComparer.Ordinal).ToArray();
+
+    internal static ArchiveFileProvider FromZip(string path)
+    {
+        var entries = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        using var archive = ZipFile.OpenRead(path);
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal) || !BaseLoader.IsSafeArchivePath(entry.FullName))
+                continue;
+            using var input = entry.Open();
+            using var output = new MemoryStream();
+            input.CopyTo(output);
+            entries[entry.FullName] = output.ToArray();
+        }
+        return new ArchiveFileProvider(path, entries);
+    }
+
+    internal static ArchiveFileProvider FromTar(string path, bool gzip)
+    {
+        using var file = File.OpenRead(path);
+        using Stream input = gzip ? new GZipStream(file, CompressionMode.Decompress) : file;
+        using var reader = new TarReader(input);
+        var entries = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        TarEntry? entry;
+        while ((entry = reader.GetNextEntry()) is not null)
+        {
+            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile or TarEntryType.ContiguousFile) ||
+                entry.DataStream is null || !BaseLoader.IsSafeArchivePath(entry.Name))
+                continue;
+            using var output = new MemoryStream();
+            entry.DataStream.CopyTo(output);
+            entries[entry.Name] = output.ToArray();
+        }
+        return new ArchiveFileProvider(path, entries);
+    }
+}
+
+public static class BaseText
+{
+    public static string Decode(byte[] bytes)
+    {
+        try
+        {
+            return new UTF8Encoding(false, true).GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            return Encoding.Latin1.GetString(bytes);
+        }
+    }
+}
