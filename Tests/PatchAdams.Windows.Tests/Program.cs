@@ -14,6 +14,9 @@ var tests = new (string Name, Action Run)[]
     ("zip bases strip one common top-level folder", BaseLoaderTests.ZipStripsCommonPrefix),
     ("tar and gzip tar bases expose text files", BaseLoaderTests.TarAndGzipTarExposeFiles),
     ("archive paths cannot escape the archive root", BaseLoaderTests.ArchiveRejectsEscapingPath),
+    ("patches apply in memory with line maps and status reports", ApplyEngineTests.ApplyIsInMemoryAndMapsLines),
+    ("context fuzz is reported without writing the base", ApplyEngineTests.FuzzIsReported),
+    ("failed hunks keep raw patch data and no post text", ApplyEngineTests.FailedHunkKeepsPatch),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -195,6 +198,75 @@ static class FixtureTests
         }
 
         throw new DirectoryNotFoundException("Could not locate Fixtures/patches from the test output directory.");
+    }
+}
+
+static class ApplyEngineTests
+{
+    public static void ApplyIsInMemoryAndMapsLines()
+    {
+        using var baseDirectory = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(baseDirectory.Path, "file.txt"), "first\nold\nlast\n");
+        var patch = UnifiedDiffParser.Parse("""
+            diff --git a/file.txt b/file.txt
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -1,3 +1,3 @@
+             first
+            -old
+            +new
+             last
+            """);
+
+        var result = ApplyEngine.Apply(patch, new DirectoryFileProvider(baseDirectory.Path));
+        var file = result.Files.Single();
+        Assert.Equal("first\nnew\nlast\n", file.PostText, "post-patch text");
+        Assert.Equal(ApplyStatusKind.Clean, file.Status.Kind, "apply status");
+        Assert.Equal(1, file.LineMap.BaseForPost(1), "first line base mapping");
+        Assert.Equal<int?>(null, file.LineMap.BaseForPost(2), "added line has no base line");
+        Assert.Equal(3, file.LineMap.BaseForPost(3), "last line base mapping");
+        Assert.Equal(1, result.Report.Clean, "clean report count");
+        Assert.Equal("first\nold\nlast\n", File.ReadAllText(Path.Combine(baseDirectory.Path, "file.txt")),
+            "base remains unchanged");
+    }
+
+    public static void FuzzIsReported()
+    {
+        using var baseDirectory = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(baseDirectory.Path, "file.txt"), "changed context\nmiddle\nlast\n");
+        var patch = UnifiedDiffParser.Parse("""
+            diff --git a/file.txt b/file.txt
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -1,3 +1,3 @@
+             original context
+             middle
+            -last
+            +end
+            """);
+        var result = ApplyEngine.Apply(patch, new DirectoryFileProvider(baseDirectory.Path));
+        Assert.Equal(ApplyStatusKind.Fuzz, result.Files.Single().Status.Kind, "fuzz status");
+        Assert.Equal(1, result.Files.Single().Status.Fuzz, "fuzz amount");
+        Assert.Equal(1, result.Report.Fuzz, "fuzz report count");
+    }
+
+    public static void FailedHunkKeepsPatch()
+    {
+        using var baseDirectory = new TemporaryDirectory();
+        File.WriteAllText(Path.Combine(baseDirectory.Path, "file.txt"), "present\n");
+        var patch = UnifiedDiffParser.Parse("""
+            diff --git a/file.txt b/file.txt
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -1 +1 @@
+            -missing
+            +replacement
+            """);
+        var file = ApplyEngine.Apply(patch, new DirectoryFileProvider(baseDirectory.Path), maxFuzz: 0).Files.Single();
+        Assert.Equal(ApplyStatusKind.Failed, file.Status.Kind, "failed status");
+        Assert.Equal<string?>(null, file.PostText, "failed post text");
+        Assert.Equal(1, file.Change.Hunks.Count, "raw hunk retained");
+        Assert.Contains("hunk 1", file.Status.Message!, "failure identifies hunk");
     }
 }
 
