@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<FileTreeEntry> files = [];
     private readonly ObservableCollection<string> findingLabels = [];
     private readonly ObservableCollection<SessionPin> pins = [];
+    private readonly ObservableCollection<ComparisonEntry> comparisons = [];
     private readonly List<SessionFinding> findings = [];
     private readonly List<string> categories = [.. ReviewSession.DefaultCategories];
     private readonly List<ManualAnchor> manualAnchors = [];
@@ -38,6 +39,7 @@ public partial class MainWindow : Window
         FileTree.ItemsSource = files;
         FindingsList.ItemsSource = findingLabels;
         PinsList.ItemsSource = pins;
+        ComparisonList.ItemsSource = comparisons;
         RationaleBox.Text = "";
         GoldenPicker.Items.Add("None");
         GoldenPicker.SelectedIndex = 0;
@@ -214,6 +216,7 @@ public partial class MainWindow : Window
         ColumnsGrid.ColumnDefinitions.Clear();
         codeEditors.Clear();
         selection = null;
+        comparisons.Clear();
         ReferenceText.Text = "Select lines in a column to generate a reference.";
         if (columns.Count == 0) return;
         for (var index = 0; index < columns.Count; index++)
@@ -335,10 +338,57 @@ public partial class MainWindow : Window
             recentSelections.Add(selection);
             if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
             ReferenceText.Text = $"{context.Column.Label} — {reference}";
+            if (postLines.Length > 0)
+                UpdateComparisons(context.Column, context.File, postLines[0], postLines[^1]);
         }
         catch (ArgumentOutOfRangeException)
         {
             selection = null;
+        }
+    }
+
+    private void UpdateComparisons(LoadedColumn sourceColumn, AppliedFile sourceFile, int startLine, int endLine)
+    {
+        comparisons.Clear();
+        var region = new Region(selectedPath, startLine, endLine);
+        foreach (var column in columns.Where(column => column.Label != sourceColumn.Label))
+        {
+            var target = column.Applied?.FileAt(selectedPath);
+            var result = AlignmentEngine.Locate(region, sourceFile, target);
+            var nearest = result.Status == AlignmentStatus.Absent && result.NearestHunkStart.HasValue
+                ? $" · nearest hunk at base line {result.NearestHunkStart}"
+                : "";
+            comparisons.Add(new ComparisonEntry(column, target, result,
+                $"{BlindDisplayLabel(column.Label)}: {result.Status.ToString().ToLowerInvariant()} " +
+                $"({result.Confidence:P0}){nearest}"));
+        }
+    }
+
+    private void ComparisonList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ComparisonList.SelectedItem is not ComparisonEntry entry || entry.File is null ||
+            !codeEditors.TryGetValue(entry.Column.Label, out var editor) ||
+            editor.Tag is not EditorContext context)
+            return;
+
+        var rows = context.DisplayLines.ToList();
+        var row = entry.Result.StartLine is int postLine
+            ? rows.FindIndex(line => line.PostLine == postLine)
+            : entry.Result.NearestHunkStart is int baseLine
+                ? rows.FindIndex(line => line.BaseLine.HasValue && line.BaseLine.Value >= baseLine)
+                : -1;
+        if (row < 0) return;
+        editor.ScrollToLine(row);
+        if (entry.Result.StartLine is int start && entry.Result.EndLine is int end)
+        {
+            var startRow = rows.FindIndex(line => line.PostLine == start);
+            var endRow = rows.FindIndex(line => line.PostLine == end);
+            if (startRow >= 0 && endRow >= startRow)
+            {
+                var startOffset = editor.GetCharacterIndexFromLineIndex(startRow);
+                var endOffset = editor.GetCharacterIndexFromLineIndex(endRow) + editor.GetLineLength(endRow);
+                editor.Select(startOffset, Math.Max(0, endOffset - startOffset));
+            }
         }
     }
 
@@ -744,6 +794,9 @@ public partial class MainWindow : Window
     {
         public string DisplayText => $"{Path}  [{Statuses}]";
     }
+
+    private sealed record ComparisonEntry(
+        LoadedColumn Column, AppliedFile? File, AlignmentResult Result, string DisplayText);
 
     private sealed record Selection(
         LoadedColumn Column, AppliedFile File, int Start, int End, string Reference, string Snippet);

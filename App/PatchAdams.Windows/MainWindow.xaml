@@ -69,6 +69,9 @@
                         <TextBlock Text="Selection reference" FontWeight="SemiBold"/>
                         <TextBlock x:Name="ReferenceText" Text="Select lines in a column to generate a reference."
                                    TextWrapping="Wrap" Margin="0,4,0,12"/>
+                        <TextBlock Text="Compare this region" FontWeight="SemiBold"/>
+                        <ListBox x:Name="ComparisonList" Height="150" Margin="0,4,0,10"
+                                 DisplayMemberPath="DisplayText" SelectionChanged="ComparisonList_SelectionChanged"/>
                         <TextBlock Text="Findings" FontWeight="SemiBold"/>
                         <ListBox x:Name="FindingsList" Margin="0,4,0,8" Height="260"
                                  SelectionChanged="FindingsList_SelectionChanged"/>
