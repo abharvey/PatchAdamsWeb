@@ -59,9 +59,27 @@ internal sealed class CodeEditor : RichTextBox
         plainLines.Clear();
         plainLines.AddRange(lines);
         rowHeight = FontSize * 1.25;
-        foreach (var line in lines)
+        for (var index = 0; index < lines.Count; index++)
         {
+            var line = lines[index];
             var paragraph = new Paragraph { Margin = new Thickness(0), LineHeight = rowHeight };
+            if (index < mappedLines.Count)
+            {
+                paragraph.Background = mappedLines[index].Kind switch
+                {
+                    DisplayLineKind.Added => Brush("#14382B"),
+                    DisplayLineKind.Removed => Brush("#3D1C2B"),
+                    _ => null
+                };
+            }
+            else if (!hasLineGutters && line.StartsWith("+ ", StringComparison.Ordinal))
+            {
+                paragraph.Background = Brush("#14382B");
+            }
+            else if (!hasLineGutters && line.StartsWith("- ", StringComparison.Ordinal))
+            {
+                paragraph.Background = Brush("#3D1C2B");
+            }
             AddHighlightedLine(paragraph, line, extension, hasLineGutters);
             Document.Blocks.Add(paragraph);
             rows.Add(paragraph);
