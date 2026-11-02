@@ -22,8 +22,9 @@ it does not claim a manual UI review has been performed.
 - `App/PatchAdams.Windows/` contains the native WPF application: local base
   and patch loading, side-by-side columns, unchanged-file views, rename
   handling, file statuses, golden comparisons, syntax colors, scroll lock,
-  search, selection alignment, references, findings, pins, manual anchors,
-  rankings, blind mode, settings, save/load, and Markdown/JSON export.
+  search, tests-only filtering, hunks-only large-file display, selection
+  alignment, references, findings, pins, manual anchors, rankings, blind mode,
+  settings, save/load, and Markdown/JSON export.
 - `Tests/PatchAdams.Windows.Tests/` is a dependency-free fixture test runner.
   `NuGet.Config` clears package sources.
 - `scripts/windows/` contains Windows x64 publish, per-user install, and
@@ -41,7 +42,10 @@ dotnet build App/PatchAdams.Windows/PatchAdams.Windows.csproj --no-restore
 
 The C# fixture runner and WPF build passed on Windows with .NET SDK 10.0.403.
 The publish script produced `artifacts/windows/win-x64/PatchAdamsSharp.exe`.
-PowerShell syntax was checked for all three distribution scripts.
+PowerShell syntax was checked for all three distribution scripts. The install
+and uninstall scripts passed an isolated per-user directory check under
+`artifacts/`.
+The published app also passed a process startup/close smoke check.
 
 ## Remaining validation
 
@@ -49,11 +53,13 @@ PowerShell syntax was checked for all three distribution scripts.
    load 2–4 patches, compare regions, search, record findings/pins/anchors,
    rank, save/reopen a session, and verify Markdown/JSON export and blind-mode
    mapping.
-2. Check user interaction details that compilation cannot prove, especially
+2. Manually exercise the full review workflow and check user interaction
+   details that compilation cannot prove, especially
    WPF selection-to-reference mapping, synchronized scrolling, menus, and
    dialog behavior.
-3. Confirm the install/uninstall scripts on a disposable Windows user
-   profile; the install script itself has not been run in this checkout.
+3. Optionally check install/uninstall on a disposable Windows user profile.
+   The isolated script check passed, but it did not install into the user's
+   normal Start menu or application folders.
 4. Inspect the final diff and commit any follow-up fixes in feature-sized
    commits.
 

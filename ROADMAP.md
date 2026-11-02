@@ -13,9 +13,11 @@ fork. The behavioral baseline is
 - [x] Session save/load and Markdown/JSON export.
 - [x] Windows publish, per-user install, and uninstall scripts.
 - [x] Dependency-free C# fixture test runner.
+- [x] Remove obsolete native app, Swift engine, and Apple build code from the fork.
+- [x] Replace old platform and bookkeeping instructions with Windows/local-only
+  project documentation.
+- [x] Audit the shipped source tree for leftover native project files.
 - [ ] Interactive Windows smoke review of the full session workflow.
-- [ ] Final source/documentation audit, including confirmation that no
-  obsolete platform code remains.
 
 Build and test gates are in [FACTORY.md](FACTORY.md); installation details are
 in [README-Windows.md](README-Windows.md).

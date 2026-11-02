@@ -8,8 +8,8 @@ The app makes no network requests and never executes code from a patch.
 ## Requirements
 
 - Windows 10 or later, x64.
-- .NET 10 Desktop Runtime to run the published app. Install the .NET 10 SDK
-  to build from source.
+- .NET 10 Desktop Runtime to run the published app.
+- .NET 10 SDK to publish or install from a source checkout.
 - Git is optional; it is needed only to open a Git revision as the base.
 
 ## Build and test
@@ -53,8 +53,8 @@ To remove the current user's installed app and shortcut:
 
 ## Current rewrite status
 
-The Windows app currently supports local directory, archive, Git revision,
-and synthetic bases; unified-diff parsing and in-memory application;
-side-by-side file views, golden diffs, search, generated line references;
-findings, pins, manual anchors, rankings, blind-mode mapping, and
-`.patchadam` session save/load and Markdown/JSON export.
+The Windows app supports local directory, archive, Git revision, and
+synthetic bases; unified-diff parsing and in-memory application; side-by-side
+file views, a tests-only file-tree filter, golden diffs, search, generated
+line references, findings, pins, manual anchors, rankings, blind-mode mapping,
+and `.patchadam` session save/load and Markdown/JSON export.
