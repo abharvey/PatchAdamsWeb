@@ -31,6 +31,7 @@ var tests = new (string Name, Action Run)[]
     ("alignment classifies exact, modified, moved, and absent regions", AlignmentTests.ClassifiesRegions),
     ("manual anchor correction takes precedence over automatic location", AlignmentTests.ManualAnchorWins),
     ("session packages round-trip patches and review state", SessionTests.PackageRoundTripsState),
+    ("session package rejects patch paths outside its folder", SessionTests.PackageRejectsEscapingPatchPaths),
     ("blind export reveals its mapping only at the end", SessionTests.BlindExportRevealsMappingLast),
     ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),
     ("display lines retain dual gutters and removed-side references", SessionTests.DisplayLinesAndRemovedReference),
@@ -263,6 +264,22 @@ static class FixtureTests
 
 static class SessionTests
 {
+    public static void PackageRejectsEscapingPatchPaths()
+    {
+        using var temporary = new TemporaryDirectory();
+        var session = CreateSession(blind: false) with
+        {
+            Columns =
+            [
+                new SessionColumn("A", "patch-a.diff", "../outside.diff"),
+                new SessionColumn("B", "patch-b.diff", "B-patch-b.diff")
+            ]
+        };
+        File.WriteAllBytes(Path.Combine(temporary.Path, "session.json"), SessionPackage.Encode(session));
+        Assert.Throws<InvalidDataException>(() => SessionPackage.Read(temporary.Path),
+            "session patch path traversal rejected");
+    }
+
     public static void PackageRoundTripsState()
     {
         using var temporary = new TemporaryDirectory();
@@ -465,6 +482,14 @@ static class DiffEngineTests
             {
                 var diff = DiffEngine.Lines(before, after, DiffAlgorithm.Myers);
                 Assert.SequenceEqual(after, diff.Apply(before, after), $"random diff replay #{sample}");
+                var lcs = new int[before.Length + 1, after.Length + 1];
+                for (var i = 1; i <= before.Length; i++)
+                for (var j = 1; j <= after.Length; j++)
+                    lcs[i, j] = before[i - 1] == after[j - 1]
+                        ? lcs[i - 1, j - 1] + 1
+                        : Math.Max(lcs[i - 1, j], lcs[i, j - 1]);
+                Assert.Equal(before.Length + after.Length - 2 * lcs[before.Length, after.Length],
+                    diff.DeletedCount + diff.InsertedCount, $"random minimal edit count #{sample}");
             }
             catch (Exception error)
             {
