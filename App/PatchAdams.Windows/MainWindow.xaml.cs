@@ -770,6 +770,13 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        if (modifiers.HasFlag(ModifierKeys.Control) && modifiers.HasFlag(ModifierKeys.Alt) && e.Key == Key.E)
+        {
+            Clipboard.SetText(MarkdownExport.Render(BuildSession()));
+            StatusText.Text = "Copied Markdown review.";
+            e.Handled = true;
+            return;
+        }
         if (!modifiers.HasFlag(ModifierKeys.Control)) return;
         switch (e.Key)
         {
