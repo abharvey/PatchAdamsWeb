@@ -1,5 +1,6 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Diagnostics;
 using System.Text;
 
 namespace PatchAdams.Core;
@@ -23,7 +24,7 @@ public static class BaseLoader
         if (Directory.Exists(fullPath))
         {
             if (revision is not null)
-                throw new NotSupportedException("Git revision bases are not available yet.");
+                return new GitRevisionFileProvider(fullPath, revision);
             return new DirectoryFileProvider(fullPath);
         }
         if (!File.Exists(fullPath))
@@ -59,6 +60,104 @@ public static class BaseLoader
                normalized[0] != '/' &&
                normalized.Split('/').All(part => part is not ".." and not ".");
     }
+}
+
+public sealed class GitRevisionFileProvider : IFileProvider
+{
+    private static readonly HashSet<string> AllowedSubcommands =
+        ["rev-parse", "ls-tree", "cat-file", "--version"];
+    private readonly string repository;
+    private readonly string commit;
+
+    public GitRevisionFileProvider(string repository, string revision)
+    {
+        this.repository = Path.GetFullPath(repository);
+        if (!Directory.Exists(this.repository))
+            throw new BaseLoaderException($"{this.repository}: no such repository directory");
+        var resolved = Run(["rev-parse", "--verify", "--end-of-options", $"{revision}^{{commit}}"], this.repository);
+        commit = resolved.ExitCode == 0 ? DecodeStdout(resolved.StandardOutput).Trim() : "";
+        if (commit.Length is not (40 or 64))
+            throw new BaseLoaderException($"{revision}: not a commit in {this.repository} — {DecodeStdout(resolved.StandardError).Trim()}");
+        Origin = new BaseOrigin("gitRevision", $"{Path.GetFileName(this.repository)}@{revision} ({commit[..12]})");
+    }
+
+    public BaseOrigin Origin { get; }
+
+    public byte[]? ReadFile(string path)
+    {
+        path = BaseLoader.ValidateRelativePath(path);
+        var result = Run(["cat-file", "blob", $"{commit}:{path}"], repository);
+        if (result.ExitCode == 0)
+            return result.StandardOutput;
+        var error = DecodeStdout(result.StandardError);
+        if (error.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("is a tree", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("Not a valid object name", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("exists on disk, but not in", StringComparison.OrdinalIgnoreCase))
+            return null;
+        throw new BaseLoaderException($"git cat-file {path}: {error.Trim()}");
+    }
+
+    public IReadOnlyList<string> GetPaths()
+    {
+        var result = Run(["ls-tree", "-r", "-z", "--name-only", commit], repository);
+        if (result.ExitCode != 0)
+            throw new BaseLoaderException($"git ls-tree: {DecodeStdout(result.StandardError).Trim()}");
+        return Encoding.UTF8.GetString(result.StandardOutput).Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Order(StringComparer.Ordinal).ToArray();
+    }
+
+    public static string? GitVersion()
+    {
+        try
+        {
+            var result = Run(["--version"], null);
+            return result.ExitCode == 0 ? DecodeStdout(result.StandardOutput).Trim() : null;
+        }
+        catch (BaseLoaderException)
+        {
+            return null;
+        }
+    }
+
+    private static (int ExitCode, byte[] StandardOutput, byte[] StandardError) Run(
+        IReadOnlyList<string> arguments, string? workingDirectory = null)
+    {
+        if (arguments.Count == 0 || !AllowedSubcommands.Contains(arguments[0]))
+            throw new BaseLoaderException($"git subcommand not allowed: {arguments.FirstOrDefault() ?? ""}");
+        var start = new ProcessStartInfo("git")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            CreateNoWindow = true
+        };
+        if (workingDirectory is not null) start.WorkingDirectory = workingDirectory;
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        start.Environment["GIT_PAGER"] = "cat";
+        start.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        start.Environment["GIT_OPTIONAL_LOCKS"] = "0";
+        try
+        {
+            using var process = Process.Start(start) ??
+                throw new BaseLoaderException("could not start git");
+            process.StandardInput.Close();
+            using var output = new MemoryStream();
+            using var error = new MemoryStream();
+            var outputTask = process.StandardOutput.BaseStream.CopyToAsync(output);
+            var errorTask = process.StandardError.BaseStream.CopyToAsync(error);
+            Task.WaitAll(outputTask, errorTask);
+            process.WaitForExit();
+            return (process.ExitCode, output.ToArray(), error.ToArray());
+        }
+        catch (Exception exception) when (exception is not BaseLoaderException)
+        {
+            throw new BaseLoaderException($"cannot run git: {exception.Message}");
+        }
+    }
+
+    private static string DecodeStdout(byte[] bytes) => Encoding.UTF8.GetString(bytes);
 }
 
 public sealed class DirectoryFileProvider : IFileProvider

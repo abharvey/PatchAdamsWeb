@@ -14,9 +14,12 @@ var tests = new (string Name, Action Run)[]
     ("zip bases strip one common top-level folder", BaseLoaderTests.ZipStripsCommonPrefix),
     ("tar and gzip tar bases expose text files", BaseLoaderTests.TarAndGzipTarExposeFiles),
     ("archive paths cannot escape the archive root", BaseLoaderTests.ArchiveRejectsEscapingPath),
+    ("git revisions are read by approved read-only commands", BaseLoaderTests.GitRevisionIsReadOnly),
     ("patches apply in memory with line maps and status reports", ApplyEngineTests.ApplyIsInMemoryAndMapsLines),
     ("context fuzz is reported without writing the base", ApplyEngineTests.FuzzIsReported),
     ("failed hunks keep raw patch data and no post text", ApplyEngineTests.FailedHunkKeepsPatch),
+    ("every fixture applies cleanly to its synthetic base", ApplyEngineTests.EveryFixtureAppliesToSyntheticBase),
+    ("merged kettle patches share one synthetic base", ApplyEngineTests.MergedKettlePatchesApply),
     ("Myers diff is minimal and replays to the target", DiffEngineTests.MyersDiffIsMinimalAndReplays),
     ("Myers diff replays deterministic randomized inputs", DiffEngineTests.MyersReplaysRandomizedInputs),
     ("patience diff anchors unique lines around reordered blocks", DiffEngineTests.PatienceDiffRetainsMovedAnchors),
@@ -380,6 +383,47 @@ static class DiffEngineTests
 
 static class ApplyEngineTests
 {
+    public static void EveryFixtureAppliesToSyntheticBase()
+    {
+        var fixtureDirectory = Path.Combine(FixtureTestsRoot(), "patches");
+        foreach (var path in Directory.GetFiles(fixtureDirectory, "*.patch"))
+        {
+            var patch = UnifiedDiffParser.ParseFile(path);
+            var provider = new InMemoryFileProvider(SyntheticBase.For(patch), Path.GetFileName(path));
+            var applied = ApplyEngine.Apply(patch, provider);
+            Assert.Equal(0, applied.Report.Failed, $"{Path.GetFileName(path)} failed files");
+            Assert.Equal(applied.Files.Count(file => file.Status.Kind != ApplyStatusKind.Binary),
+                applied.Report.Clean + applied.Report.Fuzz, $"{Path.GetFileName(path)} applied files");
+        }
+    }
+
+    public static void MergedKettlePatchesApply()
+    {
+        var fixtureDirectory = Path.Combine(FixtureTestsRoot(), "patches");
+        var patches = Enumerable.Range(1, 4)
+            .Select(index => UnifiedDiffParser.ParseFile(Path.Combine(fixtureDirectory, $"kettle-{index}.patch")))
+            .ToArray();
+        var provider = new InMemoryFileProvider(SyntheticBase.Merge(patches), "merged kettle fixtures");
+        foreach (var patch in patches)
+        {
+            var applied = ApplyEngine.Apply(patch, provider);
+            Assert.Equal(0, applied.Report.Failed, "merged kettle patch failed files");
+            Assert.True(applied.Report.IsClean, "merged kettle patch applies without fuzz");
+        }
+    }
+
+    private static string FixtureTestsRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "Fixtures");
+            if (Directory.Exists(candidate)) return candidate;
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not locate Fixtures.");
+    }
+
     public static void ApplyIsInMemoryAndMapsLines()
     {
         using var baseDirectory = new TemporaryDirectory();
@@ -493,6 +537,23 @@ static class BaseLoaderTests
 
         var provider = BaseLoader.Open(archivePath);
         Assert.Equal(0, provider.GetPaths().Count, "unsafe archive entry omitted");
+    }
+
+    public static void GitRevisionIsReadOnly()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "Fixtures", "patches")))
+            root = root.Parent;
+        if (root is null)
+            throw new DirectoryNotFoundException("Could not locate repository root.");
+        var repository = root.FullName;
+        var provider = BaseLoader.Open(repository, "HEAD");
+        Assert.True(provider.GetPaths().Contains("README.md"), "git revision lists repository file");
+        var readme = provider.ReadFile("README.md");
+        Assert.True(readme is { Length: > 0 }, "git revision reads tracked file");
+        Assert.Equal<byte[]?>(null, provider.ReadFile("not-a-real-file.txt"), "missing git path");
+        Assert.True(GitRevisionFileProvider.GitVersion()?.StartsWith("git version", StringComparison.Ordinal) == true,
+            "git version detection");
     }
 
     public static void TarAndGzipTarExposeFiles()
