@@ -28,6 +28,7 @@ var tests = new (string Name, Action Run)[]
     ("patience diff anchors unique lines around reordered blocks", DiffEngineTests.PatienceDiffRetainsMovedAnchors),
     ("token similarity ignores whitespace", DiffEngineTests.TokenSimilarityIgnoresWhitespace),
     ("alignment classifies exact, modified, moved, and absent regions", AlignmentTests.ClassifiesRegions),
+    ("manual anchor correction takes precedence over automatic location", AlignmentTests.ManualAnchorWins),
     ("session packages round-trip patches and review state", SessionTests.PackageRoundTripsState),
     ("blind export reveals its mapping only at the end", SessionTests.BlindExportRevealsMappingLast),
     ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),
@@ -373,6 +374,17 @@ static class SessionTests
 
 static class AlignmentTests
 {
+    public static void ManualAnchorWins()
+    {
+        var source = Applied("first\nvalue = 1\nlast\n", [1, null, 3], [1, 3]);
+        var target = Applied("first\nvalue = 2\nvalue = 3\nlast\n", [1, null, null, 3], [1, 4]);
+        var manual = new ManualAnchor(Guid.NewGuid(), "A", "file.cs", new LineSpan(2, 2),
+            "B", new LineSpan(3, 3));
+        var result = AlignmentEngine.Locate(new Region("file.cs", 2, 2), source, target, manual);
+        Assert.Equal(3, result.StartLine, "manual target line");
+        Assert.Equal(1d, result.Confidence, "manual anchor confidence");
+    }
+
     public static void ClassifiesRegions()
     {
         var exactSource = Applied("first\nvalue = 1\nlast\n", [1, 2, 3], [1, 2, 3]);

@@ -34,7 +34,8 @@ public static class AlignmentEngine
         @"\b(?:func|function|def|class|struct|type|interface|enum|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    public static AlignmentResult Locate(Region sourceRegion, AppliedFile source, AppliedFile? target)
+    public static AlignmentResult Locate(Region sourceRegion, AppliedFile source, AppliedFile? target,
+        ManualAnchor? manualOverride = null)
     {
         var sourceLines = DiffEngine.SplitLines(source.PostText ?? "");
         var selected = Slice(sourceLines, sourceRegion.StartLine, sourceRegion.EndLine);
@@ -42,6 +43,27 @@ public static class AlignmentEngine
             return Absent(sourceRegion, target, selected, target?.PostText);
 
         var targetLines = DiffEngine.SplitLines(target.PostText).ToList();
+        if (manualOverride is not null &&
+            manualOverride.Path == sourceRegion.FilePath &&
+            manualOverride.SourceLines.Lower == sourceRegion.StartLine &&
+            manualOverride.SourceLines.Upper == sourceRegion.EndLine)
+        {
+            var manuallyLocated = Slice(targetLines, manualOverride.TargetLines.Lower, manualOverride.TargetLines.Upper);
+            if (manuallyLocated.Count == manualOverride.TargetLines.Upper - manualOverride.TargetLines.Lower + 1)
+            {
+                var sourceText = string.Join('\n', selected);
+                var targetText = string.Join('\n', manuallyLocated);
+                var diff = DiffEngine.Tokens(sourceText, targetText);
+                var same = Normalize(sourceText) == Normalize(targetText);
+                var moved = manualOverride.TargetLines.Lower != sourceRegion.StartLine;
+                var status = same
+                    ? moved ? AlignmentStatus.Moved : AlignmentStatus.Exact
+                    : moved ? AlignmentStatus.Moved : AlignmentStatus.Modified;
+                return new AlignmentResult(status, manualOverride.TargetLines.Lower,
+                    manualOverride.TargetLines.Upper, 1, null, null, null, diff);
+            }
+        }
+
         var mappedBaseLines = Enumerable.Range(sourceRegion.StartLine, sourceRegion.LineCount)
             .Select(source.LineMap.BaseForPost)
             .Where(line => line.HasValue)
