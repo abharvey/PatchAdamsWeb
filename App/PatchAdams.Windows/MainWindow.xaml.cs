@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     private double fontSize = 13;
     private string fontFamily = "Consolas";
     private bool askBlindModeOnNewSession = true;
+    private bool filePanelCollapsed;
+    private bool reviewPanelCollapsed;
     private bool promptedForBlindMode;
     private string? basePath;
     private string? baseRevision;
@@ -49,6 +51,9 @@ public partial class MainWindow : Window
         fontFamily = preferences.FontFamily;
         fontSize = Math.Clamp(preferences.FontSize, 9, 24);
         askBlindModeOnNewSession = preferences.AskBlindModeOnNewSession;
+        filePanelCollapsed = preferences.FilePanelCollapsed;
+        reviewPanelCollapsed = preferences.ReviewPanelCollapsed;
+        ApplySidePanelLayout();
         FileTree.ItemsSource = visibleFiles;
         FindingsList.ItemsSource = findingLabels;
         PinsList.ItemsSource = pins;
@@ -386,12 +391,12 @@ public partial class MainWindow : Window
         comparisons.Clear();
         ReferenceText.Text = "Select lines in a column to generate a reference.";
         if (columns.Count == 0) return;
-        var leftTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Left);
-        var rightTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Right);
+        var leftTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Left).ToArray();
+        var rightTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Right).ToArray();
         var visibleColumns = columns.Where(column => !column.IsHidden).ToArray();
         var gridColumn = 0;
-        foreach (var column in leftTabs)
-            AddCollapsedTab(column, CollapseSide.Left, gridColumn++);
+        if (leftTabs.Length > 0)
+            AddCollapsedStrip(leftTabs, CollapseSide.Left, gridColumn++);
         for (var index = 0; index < visibleColumns.Length; index++)
         {
             if (index > 0)
@@ -482,8 +487,8 @@ public partial class MainWindow : Window
             Grid.SetColumn(panel, gridColumn++);
             ColumnsGrid.Children.Add(panel);
         }
-        foreach (var column in rightTabs)
-            AddCollapsedTab(column, CollapseSide.Right, gridColumn++);
+        if (rightTabs.Length > 0)
+            AddCollapsedStrip(rightTabs, CollapseSide.Right, gridColumn++);
     }
 
     private void CaptureColumnWidths()
@@ -512,42 +517,53 @@ public partial class MainWindow : Window
         ColumnsGrid.Children.Add(splitter);
     }
 
-    private void AddCollapsedTab(LoadedColumn column, CollapseSide side, int gridColumn)
+    private void AddCollapsedStrip(IReadOnlyList<LoadedColumn> tabs, CollapseSide side, int gridColumn)
     {
         ColumnsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        var name = BlindModeToggle.IsChecked == true
-            ? $"Patch {BlindDisplayLabel(column.Label)}"
-            : $"{column.Label} — {column.SourceName}";
-        var label = new TextBlock
+        var stack = new StackPanel { Orientation = Orientation.Vertical };
+        foreach (var column in tabs)
         {
-            Text = name,
-            FontSize = 10,
-            FontWeight = FontWeights.SemiBold,
-            Width = 170,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            TextAlignment = TextAlignment.Center,
-            LayoutTransform = new RotateTransform(side == CollapseSide.Left ? -90 : 90)
+            var name = BlindModeToggle.IsChecked == true
+                ? $"Patch {BlindDisplayLabel(column.Label)}"
+                : $"{column.Label} — {column.SourceName}";
+            var label = new TextBlock
+            {
+                Text = name,
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Width = 110,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextAlignment = TextAlignment.Center,
+                LayoutTransform = new RotateTransform(side == CollapseSide.Left ? -90 : 90)
+            };
+            var tab = new Button
+            {
+                Content = label,
+                Height = 124,
+                Margin = new Thickness(1, 2, 1, 2),
+                Padding = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                ToolTip = $"Expand {name}"
+            };
+            tab.Click += (_, _) => RestoreColumn(column);
+            tab.ContextMenu = new ContextMenu();
+            tab.ContextMenu.Items.Add(CreateMenuItem("Expand column", () => RestoreColumn(column)));
+            var otherSide = side == CollapseSide.Left ? CollapseSide.Right : CollapseSide.Left;
+            tab.ContextMenu.Items.Add(CreateMenuItem($"Move tab {otherSide.ToString().ToLowerInvariant()}", () =>
+            {
+                column.CollapsedTo = otherSide;
+                RenderColumns();
+            }));
+            stack.Children.Add(tab);
+        }
+        var strip = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = stack
         };
-        var tab = new Button
-        {
-            Content = label,
-            Margin = new Thickness(1, 2, 1, 2),
-            Padding = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            ToolTip = $"Expand {name}"
-        };
-        tab.Click += (_, _) => RestoreColumn(column);
-        tab.ContextMenu = new ContextMenu();
-        tab.ContextMenu.Items.Add(CreateMenuItem("Expand column", () => RestoreColumn(column)));
-        var otherSide = side == CollapseSide.Left ? CollapseSide.Right : CollapseSide.Left;
-        tab.ContextMenu.Items.Add(CreateMenuItem($"Move tab {otherSide.ToString().ToLowerInvariant()}", () =>
-        {
-            column.CollapsedTo = otherSide;
-            RenderColumns();
-        }));
-        Grid.SetColumn(tab, gridColumn);
-        ColumnsGrid.Children.Add(tab);
+        Grid.SetColumn(strip, gridColumn);
+        ColumnsGrid.Children.Add(strip);
     }
 
     private void CollapseColumn(LoadedColumn column, CollapseSide side)
@@ -934,11 +950,50 @@ public partial class MainWindow : Window
         RenderColumns();
     }
 
+    private void CollapseFilePanel_Click(object sender, RoutedEventArgs e)
+    {
+        filePanelCollapsed = true;
+        ApplySidePanelLayout();
+        SavePreferences();
+    }
+
+    private void ExpandFilePanel_Click(object sender, RoutedEventArgs e)
+    {
+        filePanelCollapsed = false;
+        ApplySidePanelLayout();
+        SavePreferences();
+    }
+
+    private void CollapseReviewPanel_Click(object sender, RoutedEventArgs e)
+    {
+        reviewPanelCollapsed = true;
+        ApplySidePanelLayout();
+        SavePreferences();
+    }
+
+    private void ExpandReviewPanel_Click(object sender, RoutedEventArgs e)
+    {
+        reviewPanelCollapsed = false;
+        ApplySidePanelLayout();
+        SavePreferences();
+    }
+
+    private void ApplySidePanelLayout()
+    {
+        FilePanelColumn.Width = new GridLength(filePanelCollapsed ? 36 : 230);
+        FilePanelContents.Visibility = filePanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        FilePanelTab.Visibility = filePanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        ReviewPanelColumn.Width = new GridLength(reviewPanelCollapsed ? 36 : 270);
+        ReviewPanelContents.Visibility = reviewPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        ReviewPanelTab.Visibility = reviewPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void SavePreferences()
     {
         try
         {
-            AppPreferencesStore.Save(new AppPreferences(fontFamily, fontSize, askBlindModeOnNewSession));
+            AppPreferencesStore.Save(new AppPreferences(fontFamily, fontSize, askBlindModeOnNewSession,
+                filePanelCollapsed, reviewPanelCollapsed));
         }
         catch (Exception error)
         {

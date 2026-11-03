@@ -4,7 +4,8 @@ using System.Text.Json;
 namespace PatchAdamsSharp;
 
 internal sealed record AppPreferences(string FontFamily = "Consolas", double FontSize = 13,
-    bool AskBlindModeOnNewSession = true);
+    bool AskBlindModeOnNewSession = true, bool FilePanelCollapsed = false,
+    bool ReviewPanelCollapsed = false);
 
 internal static class AppPreferencesStore
 {

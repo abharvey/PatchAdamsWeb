@@ -47,9 +47,13 @@ tests of the current engines and implementation tests for the Windows app.
   positions, not merely identical raw line numbers.
 - Show each column label and patch source file name together. Expanded columns
   resize using splitters and can be reordered. Any column can collapse into a
-  narrow left or right side tab that retains its patch name (blind label in
-  blind mode); one to four columns can remain expanded. Collapsed columns
-  retain their findings, and sessions restore their side and width.
+  narrow left or right strip, with the tabs on each side stacked vertically.
+  Tabs retain their patch names (blind labels in blind mode); one to four
+  columns can remain expanded. Collapsed columns retain their findings, and
+  sessions restore their side and width.
+- The Files and Review side panels can independently collapse to narrow side
+  tabs. Their collapsed state is a local display preference rather than
+  session review data.
 - Keep the app responsive on large files. Files over 50,000 lines use a
   reduced, hunks-only view.
 - Provide syntax coloring for supported languages, configurable monospace
