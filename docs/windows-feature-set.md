@@ -52,9 +52,10 @@ tests of the current engines and implementation tests for the Windows app.
   Tabs retain their patch names (blind labels in blind mode); one to four
   columns can remain expanded. Collapsed columns retain their findings, and
   sessions restore their side and width.
-- The Files and Review side panels can independently collapse to narrow side
-  tabs. Their collapsed state is a local display preference rather than
-  session review data.
+- The Files and Review side panels can be resized by dragging their dividers
+  and independently collapsed to narrow side tabs. Their expanded widths and
+  collapsed state are local display preferences rather than session review
+  data.
 - Keep the app responsive on large files. Files over 50,000 lines use a
   reduced, hunks-only view.
 - Provide syntax coloring for supported languages, configurable monospace

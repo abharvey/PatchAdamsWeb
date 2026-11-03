@@ -42,8 +42,9 @@ the code in a patch.
 
 The **request box directly below the bar** holds the task the patches answer.
 It is saved with the session and included in exports. The **Files** and
-**Review** side panels each have a collapse button; click their slim side tab
-to reopen them.
+**Review** side panels each have a draggable divider and a collapse button.
+Click their slim side tab to reopen them at their previous width; those widths
+are saved locally.
 
 ## Keyboard shortcuts
 

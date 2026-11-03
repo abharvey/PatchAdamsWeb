@@ -52,7 +52,9 @@
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="FilePanelColumn" Width="230"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="FilePanelSplitterColumn" Width="6"/>
+                <ColumnDefinition Width="*" MinWidth="160"/>
+                <ColumnDefinition x:Name="ReviewPanelSplitterColumn" Width="6"/>
                 <ColumnDefinition x:Name="ReviewPanelColumn" Width="270"/>
             </Grid.ColumnDefinitions>
             <Border Grid.Column="0" BorderBrush="#464B57" BorderThickness="0,0,1,0">
@@ -85,8 +87,18 @@
                     </Button>
                 </Grid>
             </Border>
-            <Grid x:Name="ColumnsGrid" Grid.Column="1" Margin="6"/>
-            <Border Grid.Column="2" Background="#2F343E" BorderBrush="#464B57" BorderThickness="1,0,0,0">
+            <GridSplitter x:Name="FilePanelSplitter" Grid.Column="1" Width="6"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
+                          Cursor="SizeWE" Background="{StaticResource OneDarkControlBorder}"
+                          DragCompleted="SidePanelSplitter_DragCompleted"/>
+            <Grid x:Name="ColumnsGrid" Grid.Column="2" Margin="6"/>
+            <GridSplitter x:Name="ReviewPanelSplitter" Grid.Column="3" Width="6"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
+                          Cursor="SizeWE" Background="{StaticResource OneDarkControlBorder}"
+                          DragCompleted="SidePanelSplitter_DragCompleted"/>
+            <Border Grid.Column="4" Background="#2F343E" BorderBrush="#464B57" BorderThickness="1,0,0,0">
                 <Grid>
                     <DockPanel x:Name="ReviewPanelContents" Margin="10">
                         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">

@@ -5,7 +5,8 @@ namespace PatchAdamsSharp;
 
 internal sealed record AppPreferences(string FontFamily = "Consolas", double FontSize = 13,
     bool AskBlindModeOnNewSession = true, bool FilePanelCollapsed = false,
-    bool ReviewPanelCollapsed = false);
+    bool ReviewPanelCollapsed = false, double FilePanelWidth = 230,
+    double ReviewPanelWidth = 270);
 
 internal static class AppPreferencesStore
 {

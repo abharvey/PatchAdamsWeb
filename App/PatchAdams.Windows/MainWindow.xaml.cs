@@ -2,6 +2,7 @@ using System.IO;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
@@ -31,6 +32,8 @@ public partial class MainWindow : Window
     private bool askBlindModeOnNewSession = true;
     private bool filePanelCollapsed;
     private bool reviewPanelCollapsed;
+    private double filePanelWidth = 230;
+    private double reviewPanelWidth = 270;
     private bool promptedForBlindMode;
     private string? basePath;
     private string? baseRevision;
@@ -53,6 +56,8 @@ public partial class MainWindow : Window
         askBlindModeOnNewSession = preferences.AskBlindModeOnNewSession;
         filePanelCollapsed = preferences.FilePanelCollapsed;
         reviewPanelCollapsed = preferences.ReviewPanelCollapsed;
+        filePanelWidth = ValidPanelWidth(preferences.FilePanelWidth, 230, 120, 600);
+        reviewPanelWidth = ValidPanelWidth(preferences.ReviewPanelWidth, 270, 160, 650);
         ApplySidePanelLayout();
         FileTree.ItemsSource = visibleFiles;
         FindingsList.ItemsSource = findingLabels;
@@ -988,6 +993,7 @@ public partial class MainWindow : Window
 
     private void CollapseFilePanel_Click(object sender, RoutedEventArgs e)
     {
+        CaptureSidePanelWidths();
         filePanelCollapsed = true;
         ApplySidePanelLayout();
         SavePreferences();
@@ -1002,6 +1008,7 @@ public partial class MainWindow : Window
 
     private void CollapseReviewPanel_Click(object sender, RoutedEventArgs e)
     {
+        CaptureSidePanelWidths();
         reviewPanelCollapsed = true;
         ApplySidePanelLayout();
         SavePreferences();
@@ -1014,12 +1021,40 @@ public partial class MainWindow : Window
         SavePreferences();
     }
 
+    private void SidePanelSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        UpdateLayout();
+        CaptureSidePanelWidths();
+        SavePreferences();
+    }
+
+    private void CaptureSidePanelWidths()
+    {
+        if (!filePanelCollapsed && double.IsFinite(FilePanelColumn.ActualWidth) &&
+            FilePanelColumn.ActualWidth >= 120)
+            filePanelWidth = Math.Clamp(FilePanelColumn.ActualWidth, 120, 600);
+        if (!reviewPanelCollapsed && double.IsFinite(ReviewPanelColumn.ActualWidth) &&
+            ReviewPanelColumn.ActualWidth >= 160)
+            reviewPanelWidth = Math.Clamp(ReviewPanelColumn.ActualWidth, 160, 650);
+    }
+
+    private static double ValidPanelWidth(double width, double fallback, double minimum, double maximum) =>
+        double.IsFinite(width) && width > 0 ? Math.Clamp(width, minimum, maximum) : fallback;
+
     private void ApplySidePanelLayout()
     {
-        FilePanelColumn.Width = new GridLength(filePanelCollapsed ? 36 : 230);
+        FilePanelColumn.MinWidth = filePanelCollapsed ? 36 : 120;
+        FilePanelColumn.MaxWidth = 600;
+        FilePanelColumn.Width = new GridLength(filePanelCollapsed ? 36 : filePanelWidth);
+        FilePanelSplitterColumn.Width = new GridLength(filePanelCollapsed ? 0 : 6);
+        FilePanelSplitter.Visibility = filePanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
         FilePanelContents.Visibility = filePanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
         FilePanelTab.Visibility = filePanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
-        ReviewPanelColumn.Width = new GridLength(reviewPanelCollapsed ? 36 : 270);
+        ReviewPanelColumn.MinWidth = reviewPanelCollapsed ? 36 : 160;
+        ReviewPanelColumn.MaxWidth = 650;
+        ReviewPanelColumn.Width = new GridLength(reviewPanelCollapsed ? 36 : reviewPanelWidth);
+        ReviewPanelSplitterColumn.Width = new GridLength(reviewPanelCollapsed ? 0 : 6);
+        ReviewPanelSplitter.Visibility = reviewPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
         ReviewPanelContents.Visibility = reviewPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
         ReviewPanelTab.Visibility = reviewPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -1029,7 +1064,7 @@ public partial class MainWindow : Window
         try
         {
             AppPreferencesStore.Save(new AppPreferences(fontFamily, fontSize, askBlindModeOnNewSession,
-                filePanelCollapsed, reviewPanelCollapsed));
+                filePanelCollapsed, reviewPanelCollapsed, filePanelWidth, reviewPanelWidth));
         }
         catch (Exception error)
         {

@@ -46,6 +46,8 @@ var tests = new (string Name, Action Run)[]
     ("finding fields have visible labels and dark combo templates", ThemeContrastTests.FindingInputsAreLabeled),
     ("balance widths allocates current panel space by code demand", ColumnWidthTests.DistributesCurrentSpace),
     ("balance widths ignores an exceptionally long line", ColumnWidthTests.OutliersDoNotDominate),
+    ("Files and Review expose drag handles", LayoutPreferencesTests.SidebarsHaveSplitters),
+    ("saved sidebar widths preserve old preferences", LayoutPreferencesTests.SidebarWidthsRoundTrip),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -1005,6 +1007,51 @@ static class ColumnWidthTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => ColumnWidthBalancer.Allocate(double.PositiveInfinity, 13, panels),
             "invalid available width");
+    }
+}
+
+static class LayoutPreferencesTests
+{
+    public static void SidebarsHaveSplitters()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "App", "PatchAdams.Windows", "MainWindow.xaml")))
+            directory = directory.Parent;
+        if (directory is null)
+            throw new DirectoryNotFoundException("Could not locate the WPF window layout.");
+        var xaml = XDocument.Load(Path.Combine(directory.FullName, "App", "PatchAdams.Windows", "MainWindow.xaml"));
+        XNamespace ns = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var splitters = xaml.Descendants().Where(element => element.Name.LocalName == "GridSplitter")
+            .ToDictionary(element => (string)element.Attribute(ns + "Name")!, element => element);
+        Assert.Equal("1", (string?)splitters["FilePanelSplitter"].Attribute("Grid.Column"),
+            "Files divider position");
+        Assert.Equal("3", (string?)splitters["ReviewPanelSplitter"].Attribute("Grid.Column"),
+            "Review divider position");
+        Assert.True(splitters.Values.All(element =>
+            (string?)element.Attribute("DragCompleted") == "SidePanelSplitter_DragCompleted"),
+            "sidebar drags persist their widths");
+        var codeGrid = xaml.Descendants().Single(element =>
+            (string?)element.Attribute(ns + "Name") == "ColumnsGrid");
+        Assert.Equal("2", (string?)codeGrid.Attribute("Grid.Column"), "code panels stay between sidebars");
+    }
+
+    public static void SidebarWidthsRoundTrip()
+    {
+        const string oldSettings = """
+            {"FontFamily":"Consolas","FontSize":13,"AskBlindModeOnNewSession":true,
+             "FilePanelCollapsed":true,"ReviewPanelCollapsed":false}
+            """;
+        var original = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(oldSettings)!;
+        Assert.Equal(230d, original.FilePanelWidth, "older settings use default Files width");
+        Assert.Equal(270d, original.ReviewPanelWidth, "older settings use default Review width");
+
+        var changed = original with { FilePanelWidth = 320, ReviewPanelWidth = 390 };
+        var restored = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(
+            System.Text.Json.JsonSerializer.Serialize(changed))!;
+        Assert.Equal(320d, restored.FilePanelWidth, "Files width persists");
+        Assert.Equal(390d, restored.ReviewPanelWidth, "Review width persists");
+        Assert.True(restored.FilePanelCollapsed, "collapse state persists alongside width");
     }
 }
 
