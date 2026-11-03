@@ -52,6 +52,7 @@ dependencies.
 5. Rank patches and save a `.patchadam` session. Export Markdown or JSON when
    the review is ready.
 
-See [the Windows feature baseline](docs/windows-feature-set.md) for the
-behavioral contract and [the Windows setup notes](README-Windows.md) for
+See the [top bar user guide](docs/top-bar-user-guide.md) for controls and
+shortcuts, [the Windows feature baseline](docs/windows-feature-set.md) for the
+behavioral contract, and [the Windows setup notes](README-Windows.md) for
 distribution details.
