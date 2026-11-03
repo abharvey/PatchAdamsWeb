@@ -33,7 +33,7 @@ internal sealed class CodeEditor : RichTextBox
         HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
         Background = Brush("#282C33");
         Foreground = Plain;
-        BorderBrush = Brush("#464B57");
+        BorderBrush = Brush("#818A98");
         Padding = new Thickness(6);
         FontFamily = new FontFamily("Consolas");
         FontSize = 13;

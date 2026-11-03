@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using System.IO.Compression;
 using System.Formats.Tar;
+using System.Xml.Linq;
 using PatchAdams.Core;
 
 var tests = new (string Name, Action Run)[]
@@ -40,6 +41,8 @@ var tests = new (string Name, Action Run)[]
     ("display lines retain dual gutters and removed-side references", SessionTests.DisplayLinesAndRemovedReference),
     ("deleted files still display their removed base lines", SessionTests.DeletedFileDisplaysBaseLines),
     ("large files collapse to patch hunks with context", SessionTests.HunksOnlyDisplayCollapsesContext),
+    ("One Dark input and text colors meet AA contrast", ThemeContrastTests.OneDarkContrastMeetsAA),
+    ("finding fields have visible labels and dark combo templates", ThemeContrastTests.FindingInputsAreLabeled),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -879,6 +882,88 @@ static class FeatureContractTests
         var contract = File.ReadAllText(Path.Combine(directory.FullName, "docs", "windows-feature-set.md"));
         Assert.Contains("No network calls or telemetry.", contract, "offline safety requirement");
         Assert.Contains("never runs, builds, installs, or tests", contract, "no code execution requirement");
+    }
+}
+
+static class ThemeContrastTests
+{
+    public static void OneDarkContrastMeetsAA()
+    {
+        var app = XDocument.Load(Path.Combine(FindRoot(), "App", "PatchAdams.Windows", "App.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var colors = app.Descendants()
+            .Where(element => element.Name.LocalName == "SolidColorBrush")
+            .ToDictionary(element => element.Attribute(xaml + "Key")!.Value,
+                element => element.Attribute("Color")!.Value);
+
+        Check("OneDarkText", "OneDarkWindow", 4.5);
+        Check("OneDarkText", "OneDarkSurface", 4.5);
+        Check("OneDarkText", "OneDarkElement", 4.5);
+        Check("OneDarkText", "OneDarkActive", 4.5);
+        Check("OneDarkMutedText", "OneDarkWindow", 4.5);
+        Check("OneDarkMutedText", "OneDarkSurface", 4.5);
+        Check("OneDarkControlBorder", "OneDarkWindow", 3);
+        Check("OneDarkControlBorder", "OneDarkSurface", 3);
+        Check("OneDarkAccent", "OneDarkWindow", 3);
+
+        void Check(string foreground, string background, double minimum)
+        {
+            var contrast = Contrast(colors[foreground], colors[background]);
+            Assert.True(contrast >= minimum,
+                $"{foreground} on {background}: {contrast:F2}:1 is below {minimum}:1.");
+        }
+    }
+
+    public static void FindingInputsAreLabeled()
+    {
+        var root = FindRoot();
+        var app = XDocument.Load(Path.Combine(root, "App", "PatchAdams.Windows", "App.xaml"));
+        var combo = app.Descendants().Single(element =>
+            element.Name.LocalName == "ControlTemplate" &&
+            (string?)element.Attribute("TargetType") == "ComboBox");
+        var namedParts = combo.Descendants()
+            .Select(element => (string?)element.Attributes().FirstOrDefault(attribute =>
+                attribute.Name.LocalName == "Name")?.Value)
+            .ToHashSet();
+        Assert.True(namedParts.Contains("PART_EditableTextBox"), "editable combo text part");
+        Assert.True(namedParts.Contains("PART_Popup"), "combo popup part");
+
+        var finding = XDocument.Load(Path.Combine(root, "App", "PatchAdams.Windows", "FindingDialog.xaml"));
+        var labelTargets = finding.Descendants().Where(element => element.Name.LocalName == "Label")
+            .Select(element => (string?)element.Attribute("Target")).ToArray();
+        foreach (var name in new[] { "TitleBox", "CategoryBox", "SeverityBox",
+                     "DescriptionBox", "RequestAsksBox", "NoteBox" })
+            Assert.True(labelTargets.Any(target => target?.Contains($"ElementName={name}", StringComparison.Ordinal) == true),
+                $"{name} has a visible label");
+    }
+
+    private static string FindRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null; directory = directory.Parent)
+            if (File.Exists(Path.Combine(directory.FullName, "App", "PatchAdams.Windows", "App.xaml")))
+                return directory.FullName;
+        throw new DirectoryNotFoundException("Could not locate Windows app theme.");
+    }
+
+    private static double Contrast(string first, string second)
+    {
+        var bright = Math.Max(Luminance(first), Luminance(second));
+        var dark = Math.Min(Luminance(first), Luminance(second));
+        return (bright + 0.05) / (dark + 0.05);
+    }
+
+    private static double Luminance(string hex)
+    {
+        var rgb = hex.TrimStart('#');
+        if (rgb.Length == 8) rgb = rgb[2..];
+        static double Channel(string component)
+        {
+            var value = Convert.ToInt32(component, 16) / 255d;
+            return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+        }
+        return 0.2126 * Channel(rgb[..2]) + 0.7152 * Channel(rgb[2..4]) +
+               0.0722 * Channel(rgb[4..6]);
     }
 }
 

@@ -9,27 +9,41 @@
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock x:Name="ReferenceLabel" Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,10"/>
-        <TextBox x:Name="TitleBox" Grid.Row="1" Margin="0,0,0,8" ToolTip="Finding title"/>
-        <ComboBox x:Name="CategoryBox" Grid.Row="2" Margin="0,0,0,8">
-            <ComboBoxItem Content="unnecessary helpers"/><ComboBoxItem Content="excessive defensiveness"/>
-            <ComboBoxItem Content="unnecessary machinery or repeated work"/><ComboBoxItem Content="duplicated logic or state"/>
-            <ComboBoxItem Content="too many branches"/><ComboBoxItem Content="unclear code"/>
-            <ComboBoxItem Content="unhelpful comments or names"/><ComboBoxItem Content="code in the wrong place"/>
-            <ComboBoxItem Content="unneeded backwards compatibility"/><ComboBoxItem Content="dead or unrelated code"/>
-            <ComboBoxItem Content="premature extensibility"/><ComboBoxItem Content="low-value tests"/><ComboBoxItem Content="other"/>
-        </ComboBox>
-        <ComboBox x:Name="SeverityBox" Grid.Row="3" Margin="0,0,0,8">
-            <ComboBoxItem Content="trivial"/><ComboBoxItem Content="minor"/>
-            <ComboBoxItem Content="material"/><ComboBoxItem Content="blocking"/>
-        </ComboBox>
-        <TextBox x:Name="DescriptionBox" Grid.Row="4" Height="90" AcceptsReturn="True"
-                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
-        <ComboBox x:Name="RequestAsksBox" Grid.Row="5" Margin="0,0,0,8">
-            <ComboBoxItem Content="unclear"/><ComboBoxItem Content="yes"/><ComboBoxItem Content="no"/>
-        </ComboBox>
-        <TextBox x:Name="NoteBox" Grid.Row="6" Height="55" AcceptsReturn="True" TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto" Margin="0,0,0,8" ToolTip="Park a correctness concern"/>
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="Selected reference" FontWeight="SemiBold"/>
+            <TextBlock x:Name="ReferenceLabel" TextWrapping="Wrap" Foreground="{StaticResource OneDarkMutedText}"/>
+        </StackPanel>
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <Label Content="Title (required)" Target="{Binding ElementName=TitleBox}"/>
+            <TextBox x:Name="TitleBox" AutomationProperties.Name="Finding title"/>
+        </StackPanel>
+        <StackPanel Grid.Row="2" Margin="0,0,0,10">
+            <Label Content="Category (required)" Target="{Binding ElementName=CategoryBox}"/>
+            <ComboBox x:Name="CategoryBox" AutomationProperties.Name="Finding category"/>
+        </StackPanel>
+        <StackPanel Grid.Row="3" Margin="0,0,0,10">
+            <Label Content="Severity" Target="{Binding ElementName=SeverityBox}"/>
+            <ComboBox x:Name="SeverityBox" AutomationProperties.Name="Finding severity">
+                <ComboBoxItem Content="trivial"/><ComboBoxItem Content="minor"/>
+                <ComboBoxItem Content="material"/><ComboBoxItem Content="blocking"/>
+            </ComboBox>
+        </StackPanel>
+        <StackPanel Grid.Row="4" Margin="0,0,0,10">
+            <Label Content="Description" Target="{Binding ElementName=DescriptionBox}"/>
+            <TextBox x:Name="DescriptionBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Finding description"/>
+        </StackPanel>
+        <StackPanel Grid.Row="5" Margin="0,0,0,10">
+            <Label Content="Does the request ask for this?" Target="{Binding ElementName=RequestAsksBox}"/>
+            <ComboBox x:Name="RequestAsksBox" AutomationProperties.Name="Request relevance">
+                <ComboBoxItem Content="unclear"/><ComboBoxItem Content="yes"/><ComboBoxItem Content="no"/>
+            </ComboBox>
+        </StackPanel>
+        <StackPanel Grid.Row="6" Margin="0,0,0,10">
+            <Label Content="Correctness note (optional)" Target="{Binding ElementName=NoteBox}"/>
+            <TextBox x:Name="NoteBox" Height="55" AcceptsReturn="True" TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Correctness note"/>
+        </StackPanel>
         <CheckBox x:Name="NotFlaggedBox" Grid.Row="7" Content="Considered and passed (not flagged)" Margin="0,0,0,8"/>
         <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Cancel" IsCancel="True"/>

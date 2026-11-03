@@ -45,7 +45,7 @@
         <Border DockPanel.Dock="Top" Background="#2F343E" Padding="8">
             <TextBox x:Name="RequestBox" AcceptsReturn="True" TextWrapping="Wrap" Height="48"
                      VerticalScrollBarVisibility="Auto" Background="#282C33" Foreground="#DCE0E5"
-                     BorderBrush="#464B57" ToolTip="Paste the task request being reviewed"/>
+                     BorderBrush="{StaticResource OneDarkControlBorder}" ToolTip="Paste the task request being reviewed"/>
         </Border>
         <Grid>
             <Grid.ColumnDefinitions>

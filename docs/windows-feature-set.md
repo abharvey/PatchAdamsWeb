@@ -58,6 +58,10 @@ tests of the current engines and implementation tests for the Windows app.
   reduced, hunks-only view.
 - Provide syntax coloring for supported languages, configurable monospace
   font and size, and keyboard shortcuts for common actions.
+- Form inputs, selection states, and focus indicators use the dark palette
+  throughout the app. Normal input text and labels meet WCAG AA 4.5:1 contrast
+  against their backgrounds; control boundaries and focus indicators meet
+  3:1. Every finding field has a visible label.
 
 ## Comparison and navigation
 

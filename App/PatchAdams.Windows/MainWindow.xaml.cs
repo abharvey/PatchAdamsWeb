@@ -511,7 +511,7 @@ public partial class MainWindow : Window
             ResizeDirection = GridResizeDirection.Columns,
             ShowsPreview = true,
             Cursor = Cursors.SizeWE,
-            Background = new SolidColorBrush(Color.FromRgb(70, 75, 87))
+            Background = new SolidColorBrush(Color.FromRgb(129, 138, 152))
         };
         Grid.SetColumn(splitter, gridColumn);
         ColumnsGrid.Children.Add(splitter);
