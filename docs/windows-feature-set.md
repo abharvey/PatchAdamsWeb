@@ -45,8 +45,11 @@ tests of the current engines and implementation tests for the Windows app.
   prefix.
 - Keep columns independently scrollable; scroll lock synchronizes aligned
   positions, not merely identical raw line numbers.
-- Show each column label and patch source file name together. Columns can be
-  reordered or hidden; hidden columns retain their findings.
+- Show each column label and patch source file name together. Expanded columns
+  resize using splitters and can be reordered. Any column can collapse into a
+  narrow left or right side tab that retains its patch name (blind label in
+  blind mode); one to four columns can remain expanded. Collapsed columns
+  retain their findings, and sessions restore their side and width.
 - Keep the app responsive on large files. Files over 50,000 lines use a
   reduced, hunks-only view.
 - Provide syntax coloring for supported languages, configurable monospace

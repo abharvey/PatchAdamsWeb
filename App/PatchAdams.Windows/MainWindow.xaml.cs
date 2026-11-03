@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly List<Selection> recentSelections = [];
     private readonly List<LoadedColumn> columns = [];
     private readonly Dictionary<string, CodeEditor> codeEditors = new(StringComparer.Ordinal);
+    private readonly Dictionary<LoadedColumn, ColumnDefinition> columnDefinitions = [];
     private readonly Dictionary<string, ComboBox> rankPickers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string?> baseTextForFiles = new(StringComparer.Ordinal);
     private bool synchronizingScroll;
@@ -376,28 +377,64 @@ public partial class MainWindow : Window
 
     private void RenderColumns()
     {
+        CaptureColumnWidths();
         ColumnsGrid.Children.Clear();
         ColumnsGrid.ColumnDefinitions.Clear();
+        columnDefinitions.Clear();
         codeEditors.Clear();
         selection = null;
         comparisons.Clear();
         ReferenceText.Text = "Select lines in a column to generate a reference.";
         if (columns.Count == 0) return;
+        var leftTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Left);
+        var rightTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Right);
         var visibleColumns = columns.Where(column => !column.IsHidden).ToArray();
+        var gridColumn = 0;
+        foreach (var column in leftTabs)
+            AddCollapsedTab(column, CollapseSide.Left, gridColumn++);
         for (var index = 0; index < visibleColumns.Length; index++)
         {
-            ColumnsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            if (index > 0)
+                AddSplitter(gridColumn++);
             var column = visibleColumns[index];
-            var panel = new DockPanel { Margin = new Thickness(4) };
-            var header = new TextBlock
+            var definition = new ColumnDefinition
             {
-                Text = BlindModeToggle.IsChecked == true
-                    ? $"Patch {BlindDisplayLabel(column.Label)}{(column.IsRead ? " ✓" : "")}"
-                    : $"{column.Label} — {column.SourceName}{(column.IsRead ? " ✓" : "")}",
+                Width = new GridLength(Math.Max(1, column.WidthWeight), GridUnitType.Star),
+                MinWidth = 90
+            };
+            ColumnsGrid.ColumnDefinitions.Add(definition);
+            columnDefinitions[column] = definition;
+            var panel = new DockPanel { Margin = new Thickness(4) };
+            var header = new DockPanel { Margin = new Thickness(2, 2, 2, 6) };
+            var collapseLeft = new Button
+            {
+                Content = "◀", FontSize = 10, Width = 28, Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0), ToolTip = "Collapse this patch to the left",
+                IsEnabled = visibleColumns.Length > 1
+            };
+            collapseLeft.Click += (_, _) => CollapseColumn(column, CollapseSide.Left);
+            DockPanel.SetDock(collapseLeft, Dock.Left);
+            header.Children.Add(collapseLeft);
+            var collapseRight = new Button
+            {
+                Content = "▶", FontSize = 10, Width = 28, Padding = new Thickness(0),
+                Margin = new Thickness(1, 0, 1, 0), ToolTip = "Collapse this patch to the right",
+                IsEnabled = visibleColumns.Length > 1
+            };
+            collapseRight.Click += (_, _) => CollapseColumn(column, CollapseSide.Right);
+            DockPanel.SetDock(collapseRight, Dock.Right);
+            header.Children.Add(collapseRight);
+            var title = BlindModeToggle.IsChecked == true
+                ? $"Patch {BlindDisplayLabel(column.Label)}{(column.IsRead ? " ✓" : "")}"
+                : $"{column.Label} — {column.SourceName}{(column.IsRead ? " ✓" : "")}";
+            header.Children.Add(new TextBlock
+            {
+                Text = title,
                 FontWeight = FontWeights.Bold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(3, 3, 3, 7)
-            };
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = title
+            });
             header.ContextMenu = CreateColumnMenu(column);
             DockPanel.SetDock(header, Dock.Top);
             panel.Children.Add(header);
@@ -442,9 +479,90 @@ public partial class MainWindow : Window
             };
             codeEditors[column.Label] = editor;
             panel.Children.Add(editor);
-            Grid.SetColumn(panel, index);
+            Grid.SetColumn(panel, gridColumn++);
             ColumnsGrid.Children.Add(panel);
         }
+        foreach (var column in rightTabs)
+            AddCollapsedTab(column, CollapseSide.Right, gridColumn++);
+    }
+
+    private void CaptureColumnWidths()
+    {
+        if (columnDefinitions.Count < 2) return;
+        foreach (var (column, definition) in columnDefinitions)
+            if (double.IsFinite(definition.ActualWidth) && definition.ActualWidth > 0)
+                column.WidthWeight = definition.ActualWidth;
+    }
+
+    private void AddSplitter(int gridColumn)
+    {
+        ColumnsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+        var splitter = new GridSplitter
+        {
+            Width = 6,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+            ResizeDirection = GridResizeDirection.Columns,
+            ShowsPreview = true,
+            Cursor = Cursors.SizeWE,
+            Background = new SolidColorBrush(Color.FromRgb(70, 75, 87))
+        };
+        Grid.SetColumn(splitter, gridColumn);
+        ColumnsGrid.Children.Add(splitter);
+    }
+
+    private void AddCollapsedTab(LoadedColumn column, CollapseSide side, int gridColumn)
+    {
+        ColumnsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+        var name = BlindModeToggle.IsChecked == true
+            ? $"Patch {BlindDisplayLabel(column.Label)}"
+            : $"{column.Label} — {column.SourceName}";
+        var label = new TextBlock
+        {
+            Text = name,
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Width = 170,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextAlignment = TextAlignment.Center,
+            LayoutTransform = new RotateTransform(side == CollapseSide.Left ? -90 : 90)
+        };
+        var tab = new Button
+        {
+            Content = label,
+            Margin = new Thickness(1, 2, 1, 2),
+            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            ToolTip = $"Expand {name}"
+        };
+        tab.Click += (_, _) => RestoreColumn(column);
+        tab.ContextMenu = new ContextMenu();
+        tab.ContextMenu.Items.Add(CreateMenuItem("Expand column", () => RestoreColumn(column)));
+        var otherSide = side == CollapseSide.Left ? CollapseSide.Right : CollapseSide.Left;
+        tab.ContextMenu.Items.Add(CreateMenuItem($"Move tab {otherSide.ToString().ToLowerInvariant()}", () =>
+        {
+            column.CollapsedTo = otherSide;
+            RenderColumns();
+        }));
+        Grid.SetColumn(tab, gridColumn);
+        ColumnsGrid.Children.Add(tab);
+    }
+
+    private void CollapseColumn(LoadedColumn column, CollapseSide side)
+    {
+        if (!column.IsHidden && columns.Count(candidate => !candidate.IsHidden) <= 1)
+            return;
+        column.IsHidden = true;
+        column.CollapsedTo = side;
+        RenderColumns();
+    }
+
+    private void RestoreColumn(LoadedColumn column)
+    {
+        column.IsHidden = false;
+        RenderColumns();
     }
 
     private ContextMenu CreateColumnMenu(LoadedColumn column)
@@ -452,7 +570,8 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(CreateMenuItem("Move left", () => MoveColumn(column, -1)));
         menu.Items.Add(CreateMenuItem("Move right", () => MoveColumn(column, 1)));
-        menu.Items.Add(CreateMenuItem(column.IsHidden ? "Show column" : "Hide column", () => ToggleHidden(column)));
+        menu.Items.Add(CreateMenuItem("Collapse to left", () => CollapseColumn(column, CollapseSide.Left)));
+        menu.Items.Add(CreateMenuItem("Collapse to right", () => CollapseColumn(column, CollapseSide.Right)));
         menu.Items.Add(CreateMenuItem(column.IsRead ? "Mark unread" : "Mark read", () =>
         {
             column.IsRead = !column.IsRead;
@@ -476,13 +595,6 @@ public partial class MainWindow : Window
         (columns[current], columns[target]) = (columns[target], columns[current]);
         RenderColumns();
         RenderRanking();
-    }
-
-    private void ToggleHidden(LoadedColumn column)
-    {
-        if (!column.IsHidden && columns.Count(candidate => !candidate.IsHidden) <= 1) return;
-        column.IsHidden = !column.IsHidden;
-        RenderColumns();
     }
 
     private void ManageColumns_Click(object sender, RoutedEventArgs e)
@@ -1111,7 +1223,10 @@ public partial class MainWindow : Window
                 return new LoadedColumn(column.Label, column.SourceName, text, UnifiedDiffParser.Parse(text))
                 {
                     IsHidden = column.IsHidden,
-                    IsRead = column.IsRead
+                    IsRead = column.IsRead,
+                    CollapsedTo = column.CollapsedTo,
+                    WidthWeight = double.IsFinite(column.WidthWeight) && column.WidthWeight > 0
+                        ? column.WidthWeight : 1
                 };
             }).ToArray());
             columns.Clear();
@@ -1148,13 +1263,14 @@ public partial class MainWindow : Window
 
     private ReviewSession BuildSession()
     {
+        CaptureColumnWidths();
         var old = loadedSession;
         var baseInfo = new SessionBase(baseKind, Path: basePath,
             Revision: baseRevision, Commit: baseCommit, Label: old?.Base.Label);
         return new ReviewSession(ReviewSession.CurrentVersion, old?.Name ?? "Patch review", RequestBox.Text,
             baseInfo,
             columns.Select(column => new SessionColumn(column.Label, column.SourceName, "",
-                column.IsHidden, column.IsRead)).ToArray(),
+                column.IsHidden, column.IsRead, column.CollapsedTo, column.WidthWeight)).ToArray(),
             golden, categories.ToArray(), findings.ToArray(),
             new SessionRanking(rankPickers.ToDictionary(pair => pair.Key,
                 pair => int.TryParse(pair.Value.SelectedItem as string, out var rank) ? rank : (int?)null)
@@ -1175,6 +1291,8 @@ public partial class MainWindow : Window
         public Dictionary<string, AppliedFile> UnchangedFiles { get; } = new(StringComparer.Ordinal);
         public bool IsHidden { get; set; }
         public bool IsRead { get; set; }
+        public CollapseSide CollapsedTo { get; set; } = CollapseSide.Right;
+        public double WidthWeight { get; set; } = 1;
     }
 
     private sealed record FileTreeEntry(string Path, string Statuses, bool IsTest)

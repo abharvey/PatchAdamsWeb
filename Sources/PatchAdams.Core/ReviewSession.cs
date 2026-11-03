@@ -21,7 +21,15 @@ public enum RequestRelevance
 
 public sealed record LineSpan(int Lower, int Upper);
 public sealed record FindingAnchor(string Label, string Status, double Confidence, string? Reference);
-public sealed record SessionColumn(string Label, string SourceName, string PatchFile, bool IsHidden = false, bool IsRead = false);
+public enum CollapseSide { Left, Right }
+public sealed record SessionColumn(
+    string Label,
+    string SourceName,
+    string PatchFile,
+    bool IsHidden = false,
+    bool IsRead = false,
+    CollapseSide CollapsedTo = CollapseSide.Right,
+    double WidthWeight = 1);
 public sealed record SessionBase(string Kind, string? Path = null, string? Revision = null, string? Commit = null, string? Label = null);
 public sealed record SessionRanking(IReadOnlyDictionary<string, int> Ranks, string Rationale)
 {

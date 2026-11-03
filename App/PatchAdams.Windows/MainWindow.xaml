@@ -9,7 +9,7 @@
             <DockPanel>
                 <TextBlock DockPanel.Dock="Left" Text="PatchAdams#" FontSize="18" FontWeight="Bold"
                            VerticalAlignment="Center" Margin="4,0,16,0"/>
-                <StackPanel Orientation="Horizontal">
+                <WrapPanel Orientation="Horizontal">
                     <Button Content="Choose base…" Click="ChooseBase_Click"/>
                     <Button Content="Choose archive…" Click="ChooseArchive_Click"/>
                     <Button Content="Git revision…" Click="ChooseGitRevision_Click"/>
@@ -39,7 +39,7 @@
                               Unchecked="ShowRemoved_Changed"/>
                     <CheckBox x:Name="BlindModeToggle" Content="Blind review" VerticalAlignment="Center"
                               Margin="12,0,4,0" Checked="BlindMode_Changed" Unchecked="BlindMode_Changed"/>
-                </StackPanel>
+                </WrapPanel>
             </DockPanel>
         </Border>
         <Border DockPanel.Dock="Top" Background="#2F343E" Padding="8">
@@ -70,12 +70,11 @@
                     </TreeView>
                 </DockPanel>
             </Border>
-            <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                <Grid x:Name="ColumnsGrid" Margin="6"/>
-            </ScrollViewer>
+            <Grid x:Name="ColumnsGrid" Grid.Column="1" Margin="6"/>
             <Border Grid.Column="2" Background="#2F343E" BorderBrush="#464B57" BorderThickness="1,0,0,0" Padding="10">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Review" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
                         <TextBlock Text="Selection reference" FontWeight="SemiBold"/>
                         <TextBlock x:Name="ReferenceText" Text="Select lines in a column to generate a reference."
@@ -102,6 +101,7 @@
                         <TextBlock x:Name="ReportText" Text="Choose a base and add 2–4 patches."
                                    TextWrapping="Wrap"/>
                     </StackPanel>
+                    </ScrollViewer>
                 </DockPanel>
             </Border>
         </Grid>

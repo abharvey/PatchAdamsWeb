@@ -33,6 +33,7 @@ var tests = new (string Name, Action Run)[]
     ("alignment classifies exact, modified, moved, and absent regions", AlignmentTests.ClassifiesRegions),
     ("manual anchor correction takes precedence over automatic location", AlignmentTests.ManualAnchorWins),
     ("session packages round-trip patches and review state", SessionTests.PackageRoundTripsState),
+    ("older sessions reopen with default patch layout", SessionTests.OlderSessionsKeepDefaultLayout),
     ("session package rejects patch paths outside its folder", SessionTests.PackageRejectsEscapingPatchPaths),
     ("blind export reveals its mapping only at the end", SessionTests.BlindExportRevealsMappingLast),
     ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),
@@ -296,7 +297,15 @@ static class SessionTests
     public static void PackageRoundTripsState()
     {
         using var temporary = new TemporaryDirectory();
-        var session = CreateSession(blind: false);
+        var session = CreateSession(blind: false) with
+        {
+            Columns =
+            [
+                new SessionColumn("A", "patch-a.diff", "", IsHidden: true,
+                    CollapsedTo: CollapseSide.Left, WidthWeight: 2.5),
+                new SessionColumn("B", "patch-b.diff", "", WidthWeight: 1.25)
+            ]
+        };
         SessionPackage.Write(new SessionContents(session,
             new Dictionary<string, string> { ["A"] = "diff A", ["B"] = "diff B" }), temporary.Path);
         var loaded = SessionPackage.Read(temporary.Path);
@@ -308,6 +317,28 @@ static class SessionTests
         Assert.Equal(2, loaded.Session.Pins.Count, "restored pins");
         Assert.Equal(2, loaded.Session.ManualAnchors.Count, "restored anchors");
         Assert.Equal("quality first", loaded.Session.Ranking.Rationale, "restored ranking");
+        Assert.True(loaded.Session.Columns[0].IsHidden, "restored collapsed column");
+        Assert.Equal(CollapseSide.Left, loaded.Session.Columns[0].CollapsedTo, "restored collapse side");
+        Assert.Equal(2.5, loaded.Session.Columns[0].WidthWeight, "restored column width");
+    }
+
+    public static void OlderSessionsKeepDefaultLayout()
+    {
+        using var temporary = new TemporaryDirectory();
+        var session = CreateSession(blind: false);
+        SessionPackage.Write(new SessionContents(session,
+            new Dictionary<string, string> { ["A"] = "diff A", ["B"] = "diff B" }), temporary.Path);
+        var manifestPath = Path.Combine(temporary.Path, "session.json");
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
+        foreach (var column in manifest["columns"]!.AsArray())
+        {
+            column!.AsObject().Remove("collapsedTo");
+            column.AsObject().Remove("widthWeight");
+        }
+        File.WriteAllText(manifestPath, manifest.ToJsonString());
+        var reopened = SessionPackage.Read(temporary.Path);
+        Assert.Equal(CollapseSide.Right, reopened.Session.Columns[0].CollapsedTo, "old session collapse side");
+        Assert.Equal(1d, reopened.Session.Columns[0].WidthWeight, "old session width weight");
     }
 
     public static void BlindExportRevealsMappingLast()
