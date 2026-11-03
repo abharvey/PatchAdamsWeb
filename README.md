@@ -1,5 +1,10 @@
 # PatchAdams#
 
+*Redacted Patch Content*
+
+<img width="3437" height="1361" alt="Screenshot 2026-11-03 145246" src="https://github.com/user-attachments/assets/c16dfa87-68dc-4527-b494-d79b6d8c2a8f" />
+
+
 PatchAdams# is an offline Windows desktop app for reviewing two to four
 candidate patches against one code base. It presents the patches side by side,
 aligns selected regions, supports a golden reference, and records findings with
