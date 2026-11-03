@@ -23,6 +23,7 @@ the code in a patch.
 | **Open session…** | Choose a `.patchadam` **folder** containing `session.json`. It restores the copied patches and saved review state. If the original base is unavailable, the app rebuilds a synthetic base and reports that fallback. |
 | **Save session…** | Choose or create a folder for the `.patchadam` package. It stores copies of the patches, a pointer to the base, and your review state. |
 | **Manage columns…** | Check which patch columns stay expanded. A collapsed patch remains accessible as a narrow side tab, and at least one column must stay expanded. Drag the divider between expanded patches to resize them; use **◀ / ▶** in a patch header to choose its collapse side. Click a side tab to restore it. |
+| **Balance widths** | Redistribute the available space across expanded patch panels using a rough fit to the lines currently displayed. Collapsed panels stay collapsed. Available when at least two patches are expanded; you can still drag dividers afterward. |
 | **Export Markdown…** | Save the current ranking and findings as a Markdown review. |
 | **Export JSON…** | Save the review record, including any recorded finding anchors and confidence values, as JSON. |
 

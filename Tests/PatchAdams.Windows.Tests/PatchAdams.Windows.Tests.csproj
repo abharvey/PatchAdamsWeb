@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Sources/PatchAdams.Core/PatchAdams.Core.csproj" />
+    <Compile Include="../../App/PatchAdams.Windows/ColumnWidthBalancer.cs" Link="ColumnWidthBalancer.cs" />
   </ItemGroup>
 </Project>

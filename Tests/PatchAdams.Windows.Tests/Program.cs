@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Formats.Tar;
 using System.Xml.Linq;
 using PatchAdams.Core;
+using PatchAdamsSharp;
 
 var tests = new (string Name, Action Run)[]
 {
@@ -43,6 +44,8 @@ var tests = new (string Name, Action Run)[]
     ("large files collapse to patch hunks with context", SessionTests.HunksOnlyDisplayCollapsesContext),
     ("One Dark input and text colors meet AA contrast", ThemeContrastTests.OneDarkContrastMeetsAA),
     ("finding fields have visible labels and dark combo templates", ThemeContrastTests.FindingInputsAreLabeled),
+    ("balance widths allocates current panel space by code demand", ColumnWidthTests.DistributesCurrentSpace),
+    ("balance widths ignores an exceptionally long line", ColumnWidthTests.OutliersDoNotDominate),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -964,6 +967,44 @@ static class ThemeContrastTests
         }
         return 0.2126 * Channel(rgb[..2]) + 0.7152 * Channel(rgb[2..4]) +
                0.0722 * Channel(rgb[4..6]);
+    }
+}
+
+static class ColumnWidthTests
+{
+    public static void DistributesCurrentSpace()
+    {
+        IReadOnlyList<IReadOnlyList<string>> panels =
+        [
+            Enumerable.Repeat(new string('x', 40), 30).ToArray(),
+            Enumerable.Repeat(new string('x', 80), 30).ToArray(),
+            Enumerable.Repeat(new string('x', 120), 30).ToArray()
+        ];
+        var widths = ColumnWidthBalancer.Allocate(900, 13, panels);
+        Assert.Equal(3, widths.Length, "three expanded panels");
+        Assert.True(Math.Abs(widths.Sum() - 900) < 0.001, "all available width is assigned");
+        Assert.True(widths[2] > widths[1] && widths[1] > widths[0],
+            "longer typical code receives more space");
+        Assert.True(widths.All(width => width >= 90), "expanded panels keep their minimum width");
+
+        var narrow = ColumnWidthBalancer.Allocate(240, 13, panels);
+        Assert.True(Math.Abs(narrow.Sum() - 240) < 0.001, "narrow width is fully assigned");
+        Assert.True(narrow.All(width => width >= 80), "narrow panels share the available width");
+    }
+
+    public static void OutliersDoNotDominate()
+    {
+        IReadOnlyList<IReadOnlyList<string>> panels =
+        [
+            Enumerable.Repeat(new string('x', 50), 19).Append(new string('x', 2000)).ToArray(),
+            Enumerable.Repeat(new string('x', 50), 20).ToArray()
+        ];
+        var widths = ColumnWidthBalancer.Allocate(700, 13, panels);
+        Assert.True(Math.Abs(widths[0] - widths[1]) < 1, "one long line cannot dominate allocation");
+        Assert.Equal(0, ColumnWidthBalancer.Allocate(700, 13, []).Length, "no expanded panels");
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ColumnWidthBalancer.Allocate(double.PositiveInfinity, 13, panels),
+            "invalid available width");
     }
 }
 

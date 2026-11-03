@@ -390,10 +390,15 @@ public partial class MainWindow : Window
         selection = null;
         comparisons.Clear();
         ReferenceText.Text = "Select lines in a column to generate a reference.";
-        if (columns.Count == 0) return;
+        if (columns.Count == 0)
+        {
+            BalanceWidthsButton.IsEnabled = false;
+            return;
+        }
         var leftTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Left).ToArray();
         var rightTabs = columns.Where(column => column.IsHidden && column.CollapsedTo == CollapseSide.Right).ToArray();
         var visibleColumns = columns.Where(column => !column.IsHidden).ToArray();
+        BalanceWidthsButton.IsEnabled = visibleColumns.Length > 1;
         var gridColumn = 0;
         if (leftTabs.Length > 0)
             AddCollapsedStrip(leftTabs, CollapseSide.Left, gridColumn++);
@@ -497,6 +502,37 @@ public partial class MainWindow : Window
         foreach (var (column, definition) in columnDefinitions)
             if (double.IsFinite(definition.ActualWidth) && definition.ActualWidth > 0)
                 column.WidthWeight = definition.ActualWidth;
+    }
+
+    private void BalanceWidths_Click(object sender, RoutedEventArgs e)
+    {
+        var expanded = columns.Where(column => !column.IsHidden).ToArray();
+        if (expanded.Length < 2) return;
+
+        ColumnsGrid.UpdateLayout();
+        var stripCount = (columns.Any(column => column.IsHidden && column.CollapsedTo == CollapseSide.Left) ? 1 : 0) +
+                         (columns.Any(column => column.IsHidden && column.CollapsedTo == CollapseSide.Right) ? 1 : 0);
+        var available = ColumnsGrid.ActualWidth - stripCount * 36 - (expanded.Length - 1) * 6;
+        if (!double.IsFinite(available) || available <= 0)
+        {
+            StatusText.Text = "Not enough space to balance the expanded patches.";
+            return;
+        }
+
+        var displayedRows = expanded.Select(column =>
+            (IReadOnlyList<string>)codeEditors[column.Label].PlainLines).ToArray();
+        var widths = ColumnWidthBalancer.Allocate(available, fontSize, displayedRows);
+        var minimum = Math.Min(90, available / expanded.Length);
+        for (var index = 0; index < expanded.Length; index++)
+        {
+            var column = expanded[index];
+            column.WidthWeight = widths[index];
+            var definition = columnDefinitions[column];
+            definition.MinWidth = minimum;
+            definition.Width = new GridLength(widths[index], GridUnitType.Star);
+        }
+        ColumnsGrid.UpdateLayout();
+        StatusText.Text = $"Balanced {expanded.Length} patch widths for the current file.";
     }
 
     private void AddSplitter(int gridColumn)

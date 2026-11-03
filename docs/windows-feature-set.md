@@ -46,7 +46,8 @@ tests of the current engines and implementation tests for the Windows app.
 - Keep columns independently scrollable; scroll lock synchronizes aligned
   positions, not merely identical raw line numbers.
 - Show each column label and patch source file name together. Expanded columns
-  resize using splitters and can be reordered. Any column can collapse into a
+  resize using splitters or a one-click approximate best fit for the currently
+  displayed code, and can be reordered. Any column can collapse into a
   narrow left or right strip, with the tabs on each side stacked vertically.
   Tabs retain their patch names (blind labels in blind mode); one to four
   columns can remain expanded. Collapsed columns retain their findings, and
