@@ -495,8 +495,8 @@ public partial class MainWindow : Window
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = new SolidColorBrush(Color.FromRgb(24, 38, 59)),
-            Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245))
+            Background = new SolidColorBrush(Color.FromRgb(47, 52, 62)),
+            Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229))
         };
         var panel = new StackPanel { Margin = new Thickness(14) };
         var checks = new Dictionary<LoadedColumn, CheckBox>();
@@ -1202,8 +1202,8 @@ internal sealed class TextPromptDialog : Window
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;
-        Background = new SolidColorBrush(Color.FromRgb(24, 38, 59));
-        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        Background = new SolidColorBrush(Color.FromRgb(47, 52, 62));
+        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
         var panel = new StackPanel { Margin = new Thickness(16) };
         panel.Children.Add(new TextBlock { Text = prompt });
         panel.Children.Add(input);
@@ -1243,8 +1243,8 @@ internal sealed class PreferencesDialog : Window
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;
-        Background = new SolidColorBrush(Color.FromRgb(24, 38, 59));
-        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        Background = new SolidColorBrush(Color.FromRgb(47, 52, 62));
+        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
         fontFamilyBox.Text = fontFamily;
         fontSizeBox.Text = fontSize.ToString(System.Globalization.CultureInfo.InvariantCulture);
         askBlindBox.IsChecked = askBlindMode;
@@ -1296,8 +1296,8 @@ internal sealed class RawPatchWindow : Window
         Width = 1000;
         Height = 750;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(16, 26, 43));
-        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        Background = new SolidColorBrush(Color.FromRgb(40, 44, 51));
+        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
         Content = new TextBox
         {
             Text = patchText,
@@ -1308,8 +1308,8 @@ internal sealed class RawPatchWindow : Window
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             FontFamily = new FontFamily("Consolas"),
-            Background = new SolidColorBrush(Color.FromRgb(15, 24, 39)),
-            Foreground = new SolidColorBrush(Color.FromRgb(221, 231, 242)),
+            Background = new SolidColorBrush(Color.FromRgb(40, 44, 51)),
+            Foreground = new SolidColorBrush(Color.FromRgb(171, 178, 191)),
             Padding = new Thickness(8)
         };
     }
@@ -1331,8 +1331,8 @@ internal sealed class SearchResultsWindow : Window
         Width = 850;
         Height = 550;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(16, 26, 43));
-        Foreground = new SolidColorBrush(Color.FromRgb(231, 237, 245));
+        Background = new SolidColorBrush(Color.FromRgb(40, 44, 51));
+        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
         foreach (var hit in hits)
             results.Items.Add(hit);
 

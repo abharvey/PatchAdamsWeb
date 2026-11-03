@@ -3,9 +3,117 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <SolidColorBrush x:Key="OneDarkWindow" Color="#FF282C33"/>
+        <SolidColorBrush x:Key="OneDarkSurface" Color="#FF2F343E"/>
+        <SolidColorBrush x:Key="OneDarkElement" Color="#FF2E343E"/>
+        <SolidColorBrush x:Key="OneDarkHover" Color="#FF363C46"/>
+        <SolidColorBrush x:Key="OneDarkActive" Color="#FF454A56"/>
+        <SolidColorBrush x:Key="OneDarkBorder" Color="#FF464B57"/>
+        <SolidColorBrush x:Key="OneDarkAccent" Color="#FF74ADE8"/>
+        <SolidColorBrush x:Key="OneDarkText" Color="#FFDCE0E5"/>
+        <SolidColorBrush x:Key="OneDarkMutedText" Color="#FFA9AFBC"/>
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4,2"/>
             <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Background" Value="{StaticResource OneDarkElement}"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource OneDarkBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource OneDarkHover}"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{StaticResource OneDarkAccent}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource OneDarkActive}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource OneDarkWindow}"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource OneDarkBorder}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource OneDarkAccent}"/>
+            <Setter Property="SelectionBrush" Value="#6674ADE8"/>
+            <Setter Property="Padding" Value="5,3"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource OneDarkElement}"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource OneDarkBorder}"/>
+            <Setter Property="Padding" Value="5,3"/>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Background" Value="{StaticResource OneDarkSurface}"/>
+                        <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+                        <Setter Property="Padding" Value="6,4"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter Property="Background" Value="{StaticResource OneDarkHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{StaticResource OneDarkActive}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="{StaticResource OneDarkWindow}"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource OneDarkBorder}"/>
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="Padding" Value="5,3"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource OneDarkActive}"/>
+                    <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource OneDarkHover}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="TreeView">
+            <Setter Property="Background" Value="{StaticResource OneDarkWindow}"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource OneDarkBorder}"/>
+        </Style>
+        <Style TargetType="TreeViewItem">
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="Padding" Value="3"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="Margin" Value="3"/>
+        </Style>
+        <Style TargetType="MenuItem">
+            <Setter Property="Background" Value="{StaticResource OneDarkSurface}"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
         </Style>
     </Application.Resources>
 </Application>

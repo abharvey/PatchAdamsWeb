@@ -8,13 +8,13 @@ namespace PatchAdamsSharp;
 
 internal sealed class CodeEditor : RichTextBox
 {
-    private static readonly Brush Plain = Brush("#DDE7F2");
-    private static readonly Brush Keyword = Brush("#FF4FD8");
-    private static readonly Brush Type = Brush("#43E8FF");
-    private static readonly Brush Function = Brush("#66FF99");
-    private static readonly Brush String = Brush("#FFB38A");
-    private static readonly Brush Number = Brush("#FF9F43");
-    private static readonly Brush Comment = Brush("#8294AD");
+    private static readonly Brush Plain = Brush("#ABB2BF");
+    private static readonly Brush Keyword = Brush("#C678DD");
+    private static readonly Brush Type = Brush("#56B6C2");
+    private static readonly Brush Function = Brush("#61AFEF");
+    private static readonly Brush String = Brush("#98C379");
+    private static readonly Brush Number = Brush("#D19A66");
+    private static readonly Brush Comment = Brush("#5C6370");
 
     private readonly List<Paragraph> rows = [];
     private readonly List<DisplayLine> displayLines = [];
@@ -31,17 +31,16 @@ internal sealed class CodeEditor : RichTextBox
         AcceptsTab = true;
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-        Background = Brush("#0F1827");
+        Background = Brush("#282C33");
         Foreground = Plain;
-        BorderBrush = Brush("#31445F");
+        BorderBrush = Brush("#464B57");
         Padding = new Thickness(6);
         FontFamily = new FontFamily("Consolas");
         FontSize = 13;
         Document = new FlowDocument
         {
             PagePadding = new Thickness(0),
-            ColumnWidth = double.PositiveInfinity,
-            PageWidth = double.PositiveInfinity
+            ColumnWidth = double.PositiveInfinity
         };
         rowHeight = FontSize * 1.25;
     }
@@ -60,6 +59,8 @@ internal sealed class CodeEditor : RichTextBox
         plainLines.Clear();
         plainLines.AddRange(lines);
         rowHeight = FontSize * 1.25;
+        var longestLine = lines.Select(line => line.Length).DefaultIfEmpty(0).Max();
+        Document.PageWidth = Math.Max(640, longestLine * FontSize * 0.8 + 32);
         for (var index = 0; index < lines.Count; index++)
         {
             var line = lines[index];
@@ -68,18 +69,18 @@ internal sealed class CodeEditor : RichTextBox
             {
                 paragraph.Background = mappedLines[index].Kind switch
                 {
-                    DisplayLineKind.Added => Brush("#14382B"),
-                    DisplayLineKind.Removed => Brush("#3D1C2B"),
+                    DisplayLineKind.Added => Brush("#263B2C"),
+                    DisplayLineKind.Removed => Brush("#472D33"),
                     _ => null
                 };
             }
             else if (!hasLineGutters && line.StartsWith("+ ", StringComparison.Ordinal))
             {
-                paragraph.Background = Brush("#14382B");
+                paragraph.Background = Brush("#263B2C");
             }
             else if (!hasLineGutters && line.StartsWith("- ", StringComparison.Ordinal))
             {
-                paragraph.Background = Brush("#3D1C2B");
+                paragraph.Background = Brush("#472D33");
             }
             if (index < mappedLines.Count && findings is not null)
             {
@@ -99,11 +100,11 @@ internal sealed class CodeEditor : RichTextBox
 
     private static SolidColorBrush FindingBrush(FindingSeverity severity) => severity switch
     {
-        FindingSeverity.Blocking => Brush("#59303A"),
-        FindingSeverity.Material => Brush("#59402A"),
-        FindingSeverity.Minor => Brush("#4A4D2C"),
-        FindingSeverity.Trivial => Brush("#34434B"),
-        _ => Brush("#31445F")
+        FindingSeverity.Blocking => Brush("#5A3038"),
+        FindingSeverity.Material => Brush("#51402C"),
+        FindingSeverity.Minor => Brush("#41432F"),
+        FindingSeverity.Trivial => Brush("#35414B"),
+        _ => Brush("#464B57")
     };
 
     public (int Start, int End)? SelectedRows()
