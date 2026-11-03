@@ -42,7 +42,7 @@ internal sealed class CodeEditor : RichTextBox
             PagePadding = new Thickness(0),
             ColumnWidth = double.PositiveInfinity
         };
-        rowHeight = FontSize * 1.25;
+        rowHeight = FontSize * 1.15;
     }
 
     public void SetCode(
@@ -56,14 +56,15 @@ internal sealed class CodeEditor : RichTextBox
         rows.Clear();
         displayLines.Clear();
         displayLines.AddRange(mappedLines);
+        var displayRows = lines.Select(line => line.TrimEnd('\r')).ToArray();
         plainLines.Clear();
-        plainLines.AddRange(lines);
-        rowHeight = FontSize * 1.25;
-        var longestLine = lines.Select(line => line.Length).DefaultIfEmpty(0).Max();
+        plainLines.AddRange(displayRows);
+        rowHeight = FontSize * 1.15;
+        var longestLine = displayRows.Select(line => line.Length).DefaultIfEmpty(0).Max();
         Document.PageWidth = Math.Max(640, longestLine * FontSize * 0.8 + 32);
-        for (var index = 0; index < lines.Count; index++)
+        for (var index = 0; index < displayRows.Length; index++)
         {
-            var line = lines[index];
+            var line = displayRows[index];
             var paragraph = new Paragraph { Margin = new Thickness(0), LineHeight = rowHeight };
             if (index < mappedLines.Count)
             {

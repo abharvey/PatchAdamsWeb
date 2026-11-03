@@ -650,7 +650,7 @@ public partial class MainWindow : Window
             .Select(line => line.BaseLine!.Value).DefaultIfEmpty(0).Max().ToString().Length);
         var postWidth = Math.Max(4, lines.Where(line => line.PostLine.HasValue)
             .Select(line => line.PostLine!.Value).DefaultIfEmpty(0).Max().ToString().Length);
-        return string.Join(Environment.NewLine, lines.Select(line =>
+        return string.Join('\n', lines.Select(line =>
             $"{(line.BaseLine?.ToString() ?? "").PadLeft(baseWidth)} | " +
             $"{(line.PostLine?.ToString() ?? "").PadLeft(postWidth)} | {line.Text}"));
     }
@@ -698,7 +698,7 @@ public partial class MainWindow : Window
             else
                 result.AddRange(DiffEngine.SplitLines(text).Skip(edit.BStart).Take(edit.BLength).Select(line => "+ " + line));
         }
-        return string.Join(Environment.NewLine, result);
+        return string.Join('\n', result);
     }
 
     private void CodeSelectionChanged(object sender, RoutedEventArgs e)
