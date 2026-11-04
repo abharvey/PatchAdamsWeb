@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private bool askBlindModeOnNewSession = true;
     private bool filePanelCollapsed;
     private bool reviewPanelCollapsed;
+    private bool requestPanelCollapsed;
     private double filePanelWidth = 230;
     private double reviewPanelWidth = 270;
     private bool promptedForBlindMode;
@@ -56,16 +57,17 @@ public partial class MainWindow : Window
         askBlindModeOnNewSession = preferences.AskBlindModeOnNewSession;
         filePanelCollapsed = preferences.FilePanelCollapsed;
         reviewPanelCollapsed = preferences.ReviewPanelCollapsed;
+        requestPanelCollapsed = preferences.RequestPanelCollapsed;
         filePanelWidth = ValidPanelWidth(preferences.FilePanelWidth, 230, 120, 600);
         reviewPanelWidth = ValidPanelWidth(preferences.ReviewPanelWidth, 270, 160, 650);
         ApplySidePanelLayout();
+        ApplyRequestPanelLayout();
         FileTree.ItemsSource = visibleFiles;
         FindingsList.ItemsSource = findingLabels;
         PinsList.ItemsSource = pins;
         ComparisonList.ItemsSource = comparisons;
         RationaleBox.Text = "";
-        GoldenPicker.Items.Add("None");
-        GoldenPicker.SelectedIndex = 0;
+        PopulateGoldenMenu();
     }
 
     private async void ChooseBase_Click(object sender, RoutedEventArgs e)
@@ -324,7 +326,7 @@ public partial class MainWindow : Window
 
             if (result.UsedFallback)
                 StatusText.Text = "The saved base is unavailable; rebuilt a synthetic base from the patches.";
-            PopulateGoldenPicker();
+            PopulateGoldenMenu();
             ReportText.Text = string.Join(Environment.NewLine, columns.Select(column =>
                 $"{(BlindModeToggle.IsChecked == true ? $"Patch {BlindDisplayLabel(column.Label)}" : $"{column.Label} — {column.SourceName}")}: {column.Applied!.Report.Clean} clean, " +
                 $"{column.Applied.Report.Fuzz} fuzz, {column.Applied.Report.Failed} failed, " +
@@ -882,17 +884,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private void GoldenPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void SelectGolden(string? label)
     {
-        if (GoldenPicker.SelectedIndex < 0) return;
-        golden = GoldenPicker.SelectedIndex == 0 ? null : columns.ElementAtOrDefault(GoldenPicker.SelectedIndex - 1)?.Label;
+        golden = label;
+        PopulateGoldenMenu();
         RenderColumns();
     }
 
     private void BlindMode_Changed(object sender, RoutedEventArgs e)
     {
         if (!IsInitialized) return;
-        PopulateGoldenPicker();
+        PopulateGoldenMenu();
         RenderColumns();
         RenderRanking();
         for (var index = 0; index < findingLabels.Count && index < findings.Count; index++)
@@ -907,16 +909,27 @@ public partial class MainWindow : Window
             $"{column.Applied?.Report.Binary ?? 0} binary"));
     }
 
-    private void PopulateGoldenPicker()
+    private void PopulateGoldenMenu()
     {
-        var selectedLabel = golden;
-        GoldenPicker.Items.Clear();
-        GoldenPicker.Items.Add("None");
+        GoldenMenu.Items.Clear();
+        AddGoldenChoice("None", null);
         foreach (var column in columns)
-            GoldenPicker.Items.Add(BlindModeToggle.IsChecked == true
+            AddGoldenChoice(BlindModeToggle.IsChecked == true
                 ? $"Patch {BlindDisplayLabel(column.Label)}"
-                : $"{column.Label} — {column.SourceName}");
-        GoldenPicker.SelectedIndex = columns.FindIndex(column => column.Label == selectedLabel) + 1;
+                : $"{column.Label} — {column.SourceName}", column.Label);
+    }
+
+    private void AddGoldenChoice(string title, string? label)
+    {
+        // A TextBlock keeps underscores in patch file names literal, not menu access keys.
+        var item = new MenuItem
+        {
+            Header = new TextBlock { Text = title },
+            IsCheckable = true,
+            IsChecked = golden == label
+        };
+        item.Click += (_, _) => SelectGolden(label);
+        GoldenMenu.Items.Add(item);
     }
 
     private string BlindDisplayLabel(string label)
@@ -1059,12 +1072,33 @@ public partial class MainWindow : Window
         ReviewPanelTab.Visibility = reviewPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void ApplyRequestPanelLayout()
+    {
+        RequestPanel.Visibility = requestPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        RequestPanelToggle.IsChecked = !requestPanelCollapsed;
+    }
+
+    private void RequestPanelToggle_Click(object sender, RoutedEventArgs e)
+    {
+        requestPanelCollapsed = !RequestPanelToggle.IsChecked;
+        ApplyRequestPanelLayout();
+        SavePreferences();
+    }
+
+    private void CollapseRequestPanel_Click(object sender, RoutedEventArgs e)
+    {
+        requestPanelCollapsed = true;
+        ApplyRequestPanelLayout();
+        SavePreferences();
+    }
+
     private void SavePreferences()
     {
         try
         {
             AppPreferencesStore.Save(new AppPreferences(fontFamily, fontSize, askBlindModeOnNewSession,
-                filePanelCollapsed, reviewPanelCollapsed, filePanelWidth, reviewPanelWidth));
+                filePanelCollapsed, reviewPanelCollapsed, filePanelWidth, reviewPanelWidth,
+                requestPanelCollapsed));
         }
         catch (Exception error)
         {
@@ -1094,9 +1128,8 @@ public partial class MainWindow : Window
         if (modifiers.HasFlag(ModifierKeys.Control) && modifiers.HasFlag(ModifierKeys.Shift) &&
             TryColumnNumber(e.Key, out var goldenIndex))
         {
-            GoldenPicker.SelectedIndex = golden == columns.ElementAtOrDefault(goldenIndex)?.Label
-                ? 0
-                : goldenIndex + 1;
+            if (columns.ElementAtOrDefault(goldenIndex) is { } column)
+                SelectGolden(golden == column.Label ? null : column.Label);
             e.Handled = true;
             return;
         }
@@ -1108,8 +1141,7 @@ public partial class MainWindow : Window
         }
         if (modifiers.HasFlag(ModifierKeys.Control) && modifiers.HasFlag(ModifierKeys.Alt) && e.Key == Key.E)
         {
-            Clipboard.SetText(MarkdownExport.Render(BuildSession()));
-            StatusText.Text = "Copied Markdown review.";
+            CopyMarkdown_Click(this, new RoutedEventArgs());
             e.Handled = true;
             return;
         }
@@ -1132,6 +1164,12 @@ public partial class MainWindow : Window
                 }
                 break;
         }
+    }
+
+    private void CopyMarkdown_Click(object sender, RoutedEventArgs e)
+    {
+        Clipboard.SetText(MarkdownExport.Render(BuildSession()));
+        StatusText.Text = "Copied Markdown review.";
     }
 
     private static bool TryColumnNumber(Key key, out int index)

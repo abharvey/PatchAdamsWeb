@@ -48,6 +48,7 @@ var tests = new (string Name, Action Run)[]
     ("balance widths ignores an exceptionally long line", ColumnWidthTests.OutliersDoNotDominate),
     ("Files and Review expose drag handles", LayoutPreferencesTests.SidebarsHaveSplitters),
     ("saved sidebar widths preserve old preferences", LayoutPreferencesTests.SidebarWidthsRoundTrip),
+    ("compact menus keep commands and request toggle accessible", LayoutPreferencesTests.CompactMenusPreserveCommands),
     ("safety contract excludes code execution and network access", FeatureContractTests.SafetyContractRemainsExplicit),
 };
 
@@ -1012,6 +1013,37 @@ static class ColumnWidthTests
 
 static class LayoutPreferencesTests
 {
+    public static void CompactMenusPreserveCommands()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "App", "PatchAdams.Windows", "MainWindow.xaml")))
+            directory = directory.Parent;
+        if (directory is null)
+            throw new DirectoryNotFoundException("Could not locate the WPF window layout.");
+        var xaml = XDocument.Load(Path.Combine(directory.FullName, "App", "PatchAdams.Windows", "MainWindow.xaml"));
+        var menu = xaml.Descendants().Single(element => element.Name.LocalName == "Menu");
+        Assert.SequenceEqual(new[] { "_File", "_View", "_Review", "_Export" },
+            menu.Elements().Select(element => (string)element.Attribute("Header")!), "four command groups");
+        var handlers = menu.Descendants().Select(element => (string?)element.Attribute("Click"))
+            .Where(handler => handler is not null).Cast<string>().ToArray();
+        foreach (var handler in new[]
+        {
+            "ChooseBase_Click", "ChooseArchive_Click", "ChooseGitRevision_Click", "RebuildSyntheticBase_Click",
+            "AddPatches_Click", "PastePatch_Click", "OpenSession_Click", "SaveSession_Click",
+            "ManageColumns_Click", "BalanceWidths_Click", "SmallerFont_Click", "LargerFont_Click",
+            "Settings_Click", "CopyReference_Click", "ExportMarkdown_Click", "ExportJson_Click",
+            "CopyMarkdown_Click", "RequestPanelToggle_Click"
+        })
+            Assert.True(handlers.Contains(handler), $"menu retains {handler}");
+        XNamespace ns = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var search = xaml.Descendants().Single(element => (string?)element.Attribute(ns + "Name") == "SearchBox");
+        Assert.True(!search.Ancestors().Contains(menu), "search stays outside dropdowns");
+        var request = menu.Descendants().Single(element =>
+            (string?)element.Attribute(ns + "Name") == "RequestPanelToggle");
+        Assert.Equal("True", (string?)request.Attribute("IsCheckable"), "request visibility is checkable");
+    }
+
     public static void SidebarsHaveSplitters()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -1045,13 +1077,15 @@ static class LayoutPreferencesTests
         var original = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(oldSettings)!;
         Assert.Equal(230d, original.FilePanelWidth, "older settings use default Files width");
         Assert.Equal(270d, original.ReviewPanelWidth, "older settings use default Review width");
+        Assert.True(!original.RequestPanelCollapsed, "older settings keep request visible");
 
-        var changed = original with { FilePanelWidth = 320, ReviewPanelWidth = 390 };
+        var changed = original with { FilePanelWidth = 320, ReviewPanelWidth = 390, RequestPanelCollapsed = true };
         var restored = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(
             System.Text.Json.JsonSerializer.Serialize(changed))!;
         Assert.Equal(320d, restored.FilePanelWidth, "Files width persists");
         Assert.Equal(390d, restored.ReviewPanelWidth, "Review width persists");
         Assert.True(restored.FilePanelCollapsed, "collapse state persists alongside width");
+        Assert.True(restored.RequestPanelCollapsed, "request visibility persists independently");
     }
 }
 

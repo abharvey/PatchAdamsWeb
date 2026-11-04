@@ -273,17 +273,64 @@
             <Setter Property="BorderBrush" Value="{StaticResource OneDarkControlBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
+        <Style TargetType="Menu">
+            <Setter Property="Background" Value="{StaticResource OneDarkWindow}"/>
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+        </Style>
         <Style TargetType="MenuItem">
             <Setter Property="Background" Value="{StaticResource OneDarkSurface}"/>
             <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="MenuSurface" Background="{TemplateBinding Background}"
-                                Padding="9,6">
-                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
-                        </Border>
+                        <Grid>
+                            <Border x:Name="MenuSurface" Background="{TemplateBinding Background}" Padding="9,6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition x:Name="CheckColumn" Width="20"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition x:Name="ArrowColumn" Width="16"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="MenuCheck" Text="✓" Visibility="Hidden"/>
+                                    <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"/>
+                                    <TextBlock x:Name="Gesture" Grid.Column="2" Margin="24,0,0,0"
+                                               Text="{TemplateBinding InputGestureText}"
+                                               Foreground="{StaticResource OneDarkMutedText}"/>
+                                    <TextBlock x:Name="MenuArrow" Grid.Column="3" Text="›"
+                                               HorizontalAlignment="Right" Visibility="Hidden"/>
+                                </Grid>
+                            </Border>
+                            <Popup x:Name="PART_Popup" IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                                   Placement="Right" PlacementTarget="{Binding ElementName=MenuSurface}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="None">
+                                <Border Background="{StaticResource OneDarkSurface}"
+                                        BorderBrush="{StaticResource OneDarkControlBorder}" BorderThickness="1" Padding="2">
+                                    <ScrollViewer CanContentScroll="True" MaxHeight="500"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"
+                                                        KeyboardNavigation.TabNavigation="Cycle"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="Role" Value="TopLevelHeader">
+                                <Setter TargetName="PART_Popup" Property="Placement" Value="Bottom"/>
+                                <Setter TargetName="CheckColumn" Property="Width" Value="0"/>
+                                <Setter TargetName="ArrowColumn" Property="Width" Value="0"/>
+                                <Setter TargetName="Gesture" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                            <Trigger Property="HasItems" Value="True">
+                                <Setter TargetName="MenuArrow" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="MenuCheck" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="MenuSurface" Property="Background" Value="{StaticResource OneDarkActive}"/>
+                            </Trigger>
                             <Trigger Property="IsHighlighted" Value="True">
                                 <Setter TargetName="MenuSurface" Property="Background" Value="{StaticResource OneDarkHover}"/>
                             </Trigger>

@@ -1,11 +1,14 @@
 # Top bar user guide
 
-The top bar wraps onto additional rows when the window is narrow. Start with
-**Add patches…** if you do not have a base: PatchAdams# will build a synthetic
+The top bar keeps commands in **File**, **View**, **Review**, and **Export**
+dropdown menus instead of wrapping buttons across several rows. Search remains
+directly accessible. Press `Alt` to use the menu access keys, then arrow keys
+and `Enter` to navigate. Start with
+**File > Add patches…** if you do not have a base: PatchAdams# will build a synthetic
 base from the patch hunks. It reads and compares code locally; it never runs
 the code in a patch.
 
-## Base and patch controls
+## File menu: bases, patches, and sessions
 
 | Control | What it does |
 | --- | --- |
@@ -15,6 +18,9 @@ the code in a patch.
 | **Rebuild base from patches** | Replace the current base with one reconstructed from the loaded patch hunks. Lines not described by any patch are synthetic filler, not the original source. |
 | **Add patches…** | Select **two to four** `.patch` or `.diff` files. This starts a new review and clears the current findings, pins, and manual anchors—save the current session first if you need them. You can also drop two to four patch files onto the window. |
 | **Paste patch** | Add one patch from the clipboard as a third or fourth column, after two or three patches are already loaded. The new column is named `pasted patch`. |
+
+The **Open session…** and **Save session…** commands are also in **File**.
+Column controls are in **View**, and file exports are in **Export**.
 
 ## Sessions, columns, and export
 
@@ -27,21 +33,28 @@ the code in a patch.
 | **Export Markdown…** | Save the current ranking and findings as a Markdown review. |
 | **Export JSON…** | Save the review record, including any recorded finding anchors and confidence values, as JSON. |
 
+In the **Export** menu the file commands are labeled **Markdown…** and
+**JSON…**. **Copy Markdown** copies the review to the clipboard without
+creating a file.
+
 ## Reading and navigation
 
 | Control | What it does |
 | --- | --- |
-| **Golden** | Choose a patch as the comparison reference. Other columns show their difference from its post-patch text. Choose **None** to return to the base comparison. |
+| **Review > Golden patch** | Choose a patch as the comparison reference. A checkmark identifies the current choice. Other columns show their difference from its post-patch text. Choose **None** to return to the base comparison. |
 | **Search** + **Find** | Search loaded code in every patch column, without case sensitivity. Results are ordered by file, column, and line; open a result to jump there. |
-| **Copy reference** | Copy the generated `filename Lstart:Lend` reference for selected code lines. A selection containing only removed lines uses `filename -Lstart:Lend` in base line numbers. Nothing is copied without a selection. |
-| **Scroll lock** | Keep expanded columns near the same base-line position while scrolling. Turn it off to scroll independently. |
-| **A− / A+** | Decrease or increase code font size (9–24 pt). The choice is saved locally. |
-| **Settings…** | Choose a monospace font and size, and whether to ask about blind review when starting a new review. These display preferences stay on this computer. |
-| **Removed** | Show or hide removed base lines in the code views. |
-| **Blind review** | Replace patch identities with a repeatable numbered shuffle. The mapping is saved with the session and appears only at the end of the Markdown export. Turn blind review off to inspect the raw patch. |
+| **Review > Copy reference** | Copy the generated `filename Lstart:Lend` reference for selected code lines. A selection containing only removed lines uses `filename -Lstart:Lend` in base line numbers. Nothing is copied without a selection. |
+| **View > Scroll lock** | Keep expanded columns near the same base-line position while scrolling. Turn it off to scroll independently. |
+| **View > Smaller code font / Larger code font** | Decrease or increase code font size (9–24 pt). The choice is saved locally. |
+| **View > Settings…** | Choose a monospace font and size, and whether to ask about blind review when starting a new review. These display preferences stay on this computer. |
+| **View > Removed lines** | Show or hide removed base lines in the code views. |
+| **Review > Blind review** | Replace patch identities with a repeatable numbered shuffle. The mapping is saved with the session and appears only at the end of the Markdown export. Turn blind review off to inspect the raw patch. |
 
 The **request box directly below the bar** holds the task the patches answer.
-It is saved with the session and included in exports. The **Files** and
+It is saved with the session and included in exports, even while hidden.
+Click **▲** beside it to hide the whole panel; use **View > Request panel**
+to show it again without losing text. Visibility is saved locally, not as
+part of the session. The **Files** and
 **Review** side panels each have a draggable divider and a collapse button.
 Click their slim side tab to reopen them at their previous width; those widths
 are saved locally.
