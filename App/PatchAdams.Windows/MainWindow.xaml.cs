@@ -431,8 +431,8 @@ public partial class MainWindow : Window
             };
             ColumnsGrid.ColumnDefinitions.Add(definition);
             columnDefinitions[column] = definition;
-            var panel = new DockPanel { Margin = new Thickness(4) };
-            var header = new DockPanel { Margin = new Thickness(2, 2, 2, 6) };
+            var panel = new DockPanel { Margin = new Thickness(2) };
+            var header = new DockPanel { Margin = new Thickness(2, 0, 2, 3) };
             var collapseLeft = new Button
             {
                 Content = "◀", FontSize = 10, Width = 28, Padding = new Thickness(0),

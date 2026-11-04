@@ -67,6 +67,10 @@ tests of the current engines and implementation tests for the Windows app.
   throughout the app. Normal input text and labels meet WCAG AA 4.5:1 contrast
   against their backgrounds; control boundaries and focus indicators meet
   3:1. Every finding field has a visible label.
+- Scrollbars use narrow 10-DIP dark tracks without arrow-button blocks,
+  with contrast-tested thumbs, hover/drag feedback, and a minimum thumb
+  length. Preserve thumb dragging, page clicks, and mouse-wheel scrolling.
+  Keep code-panel padding small to reserve space for reviewing.
 
 ## Comparison and navigation
 
