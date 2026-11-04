@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -30,7 +31,8 @@ internal static class Program
         try
         {
             RunNavigationTests(window);
-            Console.WriteLine("PASS WPF search navigation: Open location, double-click, patch/file/line, focus, and centering.");
+            RunScrollbarTests(window);
+            Console.WriteLine("PASS WPF navigation and compact scrollbars: focus, centering, track clicks, thumb drags, and wheel scrolling.");
             return 0;
         }
         catch (Exception error)
@@ -114,6 +116,67 @@ internal static class Program
         Invoke(window, "NavigateToPostLine", "B", "src/other.ts", 130);
         Pump();
         VerifyDestination(window, "B", "src/other.ts", 130);
+    }
+
+    private static void RunScrollbarTests(MainWindow window)
+    {
+        ((MenuItem)window.FindName("ScrollLockToggle")).IsChecked = false;
+        var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["B"]!;
+        var viewer = (ScrollViewer)editor.Template.FindName("PART_ContentHost", editor);
+        var bars = Descendants<ScrollBar>(editor).Where(bar => bar.IsVisible).ToArray();
+        var vertical = bars.Single(bar => bar.Orientation == Orientation.Vertical);
+        var horizontal = bars.Single(bar => bar.Orientation == Orientation.Horizontal);
+        Check(Math.Abs(vertical.ActualWidth - 10) < 0.1, "vertical scrollbar uses 10px, not native width");
+        Check(Math.Abs(horizontal.ActualHeight - 10) < 0.1, "horizontal scrollbar uses 10px, not native height");
+
+        foreach (var bar in bars)
+        {
+            var track = (Track)bar.Template.FindName("PART_Track", bar);
+            Check(((SolidColorBrush)bar.Background).Color == Color.FromRgb(40, 44, 51) &&
+                  ((SolidColorBrush)track.Thumb.Background).Color == Color.FromRgb(129, 138, 152),
+                $"{bar.Orientation} track and thumb use the contrast-tested dark palette");
+            Check(track.Thumb.ActualWidth >= (bar.Orientation == Orientation.Vertical ? 6 : 24) &&
+                  track.Thumb.ActualHeight >= (bar.Orientation == Orientation.Vertical ? 24 : 6),
+                $"{bar.Orientation} thumb retains a usable minimum length");
+            Check(Descendants<RepeatButton>(bar).Count() == 2, "only invisible page targets remain, no arrow buttons");
+        }
+
+        viewer.ScrollToVerticalOffset(0);
+        viewer.ScrollToHorizontalOffset(0);
+        Pump();
+        var pageDown = (RepeatButton)vertical.Template.FindName("PageAfter", vertical);
+        typeof(RepeatButton).GetMethod("OnClick", Private)!.Invoke(pageDown, null);
+        Pump();
+        Check(viewer.VerticalOffset > 0, "clicking the vertical track pages down");
+        var before = viewer.VerticalOffset;
+        var thumb = ((Track)vertical.Template.FindName("PART_Track", vertical)).Thumb;
+        DragThumb(thumb, 0, 30);
+        Check(viewer.VerticalOffset > before, "dragging the vertical thumb scrolls down");
+        var pageRight = (RepeatButton)horizontal.Template.FindName("PageAfter", horizontal);
+        typeof(RepeatButton).GetMethod("OnClick", Private)!.Invoke(pageRight, null);
+        Pump();
+        Check(viewer.HorizontalOffset > 0, "clicking the horizontal track pages right");
+        viewer.ScrollToHorizontalOffset(0);
+        Pump();
+        var horizontalThumb = ((Track)horizontal.Template.FindName("PART_Track", horizontal)).Thumb;
+        DragThumb(horizontalThumb, 30, 0);
+        Check(viewer.HorizontalOffset > 0, "dragging the horizontal thumb scrolls right");
+
+        before = viewer.VerticalOffset;
+        editor.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -120)
+        {
+            RoutedEvent = Mouse.MouseWheelEvent
+        });
+        Pump();
+        Check(viewer.VerticalOffset > before, "mouse-wheel scrolling is preserved");
+    }
+
+    private static void DragThumb(Thumb thumb, double horizontal, double vertical)
+    {
+        thumb.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+        thumb.RaiseEvent(new DragDeltaEventArgs(horizontal, vertical) { RoutedEvent = Thumb.DragDeltaEvent });
+        thumb.RaiseEvent(new DragCompletedEventArgs(horizontal, vertical, false) { RoutedEvent = Thumb.DragCompletedEvent });
+        Pump();
     }
 
     private static IEnumerable<string> BaseLines(string path, int count)
