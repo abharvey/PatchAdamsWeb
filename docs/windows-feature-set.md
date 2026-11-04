@@ -60,6 +60,9 @@ tests of the current engines and implementation tests for the Windows app.
   reduced, hunks-only view.
 - Provide syntax coloring for supported languages, configurable monospace
   font and size, and keyboard shortcuts for common actions.
+- Group top-bar commands into compact File, View, Review, and Export menus,
+  with search directly accessible. The request panel can be hidden and
+  restored from View without clearing its text; visibility is a local preference.
 - Form inputs, selection states, and focus indicators use the dark palette
   throughout the app. Normal input text and labels meet WCAG AA 4.5:1 contrast
   against their backgrounds; control boundaries and focus indicators meet
@@ -78,7 +81,11 @@ tests of the current engines and implementation tests for the Windows app.
 - A reviewer can correct a wrong anchor manually; the override is persisted
   and takes precedence on reload.
 - Search text across all columns, grouped by file and column, with line
-  references. Pins preserve selections for later navigation.
+  references. Opening or double-clicking a result selects its file, expands
+  its patch if needed, and focuses the matching post-patch line near the
+  viewport midpoint (clamped at file boundaries). Navigation works in golden
+  and reduced large-file views without discarding the comparison mode.
+  Pins preserve selections for later navigation.
 - A golden column can be selected or cleared. Other columns display their
   diffs against its post-patch text; the golden column remains compared with
   the base. File status reflects the same comparison.

@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Threading;
 using PatchAdams.Core;
 
 namespace PatchAdamsSharp;
@@ -134,6 +135,27 @@ internal sealed class CodeEditor : RichTextBox
     {
         if (start < 0 || end < start || end >= rows.Count) return;
         Selection.Select(rows[start].ContentStart, rows[end].ContentEnd);
+    }
+
+    public void NavigateToRow(int row)
+    {
+        if (row < 0 || row >= rows.Count) return;
+        // Newly rendered documents have no text geometry until WPF has laid them out.
+        // Run after Loaded/render work, and ignore editors replaced by later navigation.
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            if (!IsLoaded) return;
+            Focus();
+            SelectRows(row, row);
+            UpdateLayout();
+            var viewer = FindViewer();
+            if (viewer is null) return;
+            var bounds = rows[row].ContentStart.GetCharacterRect(LogicalDirection.Forward);
+            viewer.ScrollToVerticalOffset(Math.Clamp(
+                viewer.VerticalOffset + bounds.Top - (viewer.ViewportHeight - bounds.Height) / 2,
+                0, viewer.ScrollableHeight));
+            viewer.ScrollToHorizontalOffset(0);
+        }));
     }
 
     private ScrollViewer? FindViewer()

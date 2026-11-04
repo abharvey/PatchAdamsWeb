@@ -9,45 +9,68 @@
             <DockPanel>
                 <TextBlock DockPanel.Dock="Left" Text="PatchAdams#" FontSize="18" FontWeight="Bold"
                            VerticalAlignment="Center" Margin="4,0,16,0"/>
-                <WrapPanel Orientation="Horizontal">
-                    <Button Content="Choose base…" Click="ChooseBase_Click"/>
-                    <Button Content="Choose archive…" Click="ChooseArchive_Click"/>
-                    <Button Content="Git revision…" Click="ChooseGitRevision_Click"/>
-                    <Button Content="Rebuild base from patches" Click="RebuildSyntheticBase_Click"/>
-                    <Button Content="Add patches…" Click="AddPatches_Click"/>
-                    <Button Content="Paste patch" Click="PastePatch_Click"/>
-                    <Button Content="Open session…" Click="OpenSession_Click"/>
-                    <Button Content="Save session…" Click="SaveSession_Click"/>
-                    <Button Content="Manage columns…" Click="ManageColumns_Click"/>
-                    <Button x:Name="BalanceWidthsButton" Content="Balance widths" IsEnabled="False"
-                            Click="BalanceWidths_Click" ToolTip="Fit expanded patch columns to the available space"/>
-                    <Button Content="Export Markdown…" Click="ExportMarkdown_Click"/>
-                    <Button Content="Export JSON…" Click="ExportJson_Click"/>
-                    <TextBlock Text="Golden:" VerticalAlignment="Center" Margin="14,0,2,0"/>
-                    <ComboBox x:Name="GoldenPicker" Width="130" SelectionChanged="GoldenPicker_SelectionChanged"
-                              VerticalContentAlignment="Center" Margin="4,0"/>
-                    <TextBlock Text="Search:" VerticalAlignment="Center" Margin="12,0,2,0"/>
-                    <TextBox x:Name="SearchBox" Width="180" VerticalContentAlignment="Center"
-                             KeyDown="SearchBox_KeyDown"/>
+                <Menu DockPanel.Dock="Left" VerticalAlignment="Center">
+                    <MenuItem Header="_File">
+                        <MenuItem Header="Choose _base…" Click="ChooseBase_Click"/>
+                        <MenuItem Header="Choose _archive…" Click="ChooseArchive_Click"/>
+                        <MenuItem Header="_Git revision…" Click="ChooseGitRevision_Click"/>
+                        <MenuItem Header="Rebuild base from patches" Click="RebuildSyntheticBase_Click"/>
+                        <Separator/>
+                        <MenuItem Header="Add _patches…" Click="AddPatches_Click"/>
+                        <MenuItem Header="Paste patch" Click="PastePatch_Click" InputGestureText="Ctrl+Alt+V"/>
+                        <Separator/>
+                        <MenuItem Header="_Open session…" Click="OpenSession_Click"/>
+                        <MenuItem Header="_Save session…" Click="SaveSession_Click" InputGestureText="Ctrl+S"/>
+                    </MenuItem>
+                    <MenuItem Header="_View">
+                        <MenuItem Header="_Manage columns…" Click="ManageColumns_Click"/>
+                        <MenuItem x:Name="BalanceWidthsButton" Header="_Balance widths" IsEnabled="False"
+                                  Click="BalanceWidths_Click" ToolTip="Fit expanded patch columns to the available space"/>
+                        <Separator/>
+                        <MenuItem x:Name="RequestPanelToggle" Header="_Request panel" IsCheckable="True"
+                                  IsChecked="True" Click="RequestPanelToggle_Click"/>
+                        <MenuItem x:Name="ScrollLockToggle" Header="_Scroll lock" IsCheckable="True"
+                                  InputGestureText="Ctrl+L"/>
+                        <MenuItem x:Name="ShowRemovedToggle" Header="Removed _lines" IsCheckable="True"
+                                  IsChecked="True" Checked="ShowRemoved_Changed" Unchecked="ShowRemoved_Changed"/>
+                        <Separator/>
+                        <MenuItem Header="Smaller code font" Click="SmallerFont_Click"/>
+                        <MenuItem Header="Larger code font" Click="LargerFont_Click"/>
+                        <MenuItem Header="Se_ttings…" Click="Settings_Click"/>
+                    </MenuItem>
+                    <MenuItem Header="_Review">
+                        <MenuItem x:Name="GoldenMenu" Header="_Golden patch"/>
+                        <MenuItem x:Name="BlindModeToggle" Header="_Blind review" IsCheckable="True"
+                                  Checked="BlindMode_Changed" Unchecked="BlindMode_Changed"/>
+                        <Separator/>
+                        <MenuItem Header="_Copy reference" Click="CopyReference_Click" InputGestureText="Ctrl+Shift+C"/>
+                    </MenuItem>
+                    <MenuItem Header="_Export">
+                        <MenuItem Header="_Markdown…" Click="ExportMarkdown_Click" InputGestureText="Ctrl+E"/>
+                        <MenuItem Header="_JSON…" Click="ExportJson_Click" InputGestureText="Ctrl+Shift+E"/>
+                        <MenuItem Header="_Copy Markdown" Click="CopyMarkdown_Click" InputGestureText="Ctrl+Alt+E"/>
+                    </MenuItem>
+                </Menu>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left"
+                            Margin="12,0,0,0" VerticalAlignment="Center">
+                    <Label Content="_Search:" Target="{Binding ElementName=SearchBox}"
+                           VerticalAlignment="Center"/>
+                    <TextBox x:Name="SearchBox" Width="220" Margin="4,0,6,0"
+                             VerticalContentAlignment="Center" KeyDown="SearchBox_KeyDown"/>
                     <Button Content="Find" Click="Search_Click"/>
-                    <Button Content="Copy reference" Click="CopyReference_Click"/>
-                    <CheckBox x:Name="ScrollLockToggle" Content="Scroll lock" VerticalAlignment="Center"
-                              Margin="8,0,4,0"/>
-                    <Button Content="A−" Click="SmallerFont_Click"/>
-                    <Button Content="A+" Click="LargerFont_Click"/>
-                    <Button Content="Settings…" Click="Settings_Click"/>
-                    <CheckBox x:Name="ShowRemovedToggle" Content="Removed" IsChecked="True"
-                              VerticalAlignment="Center" Margin="6,0,4,0" Checked="ShowRemoved_Changed"
-                              Unchecked="ShowRemoved_Changed"/>
-                    <CheckBox x:Name="BlindModeToggle" Content="Blind review" VerticalAlignment="Center"
-                              Margin="12,0,4,0" Checked="BlindMode_Changed" Unchecked="BlindMode_Changed"/>
-                </WrapPanel>
+                </StackPanel>
             </DockPanel>
         </Border>
-        <Border DockPanel.Dock="Top" Background="#2F343E" Padding="8">
-            <TextBox x:Name="RequestBox" AcceptsReturn="True" TextWrapping="Wrap" Height="48"
-                     VerticalScrollBarVisibility="Auto" Background="#282C33" Foreground="#DCE0E5"
-                     BorderBrush="{StaticResource OneDarkControlBorder}" ToolTip="Paste the task request being reviewed"/>
+        <Border x:Name="RequestPanel" DockPanel.Dock="Top" Background="#2F343E" Padding="8">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="▲" FontSize="10" Width="28" Padding="0"
+                        VerticalAlignment="Top" ToolTip="Hide request panel (restore from View)"
+                        Click="CollapseRequestPanel_Click"/>
+                <Label DockPanel.Dock="Left" Content="Request:" Target="{Binding ElementName=RequestBox}"/>
+                <TextBox x:Name="RequestBox" AcceptsReturn="True" TextWrapping="Wrap" Height="48"
+                         VerticalScrollBarVisibility="Auto" Background="#282C33" Foreground="#DCE0E5"
+                         BorderBrush="{StaticResource OneDarkControlBorder}" ToolTip="Paste the task request being reviewed"/>
+            </DockPanel>
         </Border>
         <Grid>
             <Grid.ColumnDefinitions>
