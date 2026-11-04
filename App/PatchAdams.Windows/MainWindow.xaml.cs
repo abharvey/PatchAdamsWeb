@@ -407,6 +407,9 @@ public partial class MainWindow : Window
         selection = null;
         comparisons.Clear();
         ReferenceText.Text = "Select lines in a column to generate a reference.";
+        SelectedFileText.Text = selectedPath;
+        SelectedFileText.Visibility = columns.Count > 0 && selectedPath.Length > 0
+            ? Visibility.Visible : Visibility.Collapsed;
         if (columns.Count == 0)
         {
             BalanceWidthsButton.IsEnabled = false;
@@ -431,6 +434,7 @@ public partial class MainWindow : Window
             };
             ColumnsGrid.ColumnDefinitions.Add(definition);
             columnDefinitions[column] = definition;
+            var appliedFile = ColumnFile(column, selectedPath);
             var panel = new DockPanel { Margin = new Thickness(2) };
             var header = new DockPanel { Margin = new Thickness(2, 0, 2, 3) };
             var collapseLeft = new Button
@@ -451,6 +455,9 @@ public partial class MainWindow : Window
             collapseRight.Click += (_, _) => CollapseColumn(column, CollapseSide.Right);
             DockPanel.SetDock(collapseRight, Dock.Right);
             header.Children.Add(collapseRight);
+            var copyCode = CreateCopyCodeButton(column, appliedFile);
+            DockPanel.SetDock(copyCode, Dock.Right);
+            header.Children.Add(copyCode);
             var title = BlindModeToggle.IsChecked == true
                 ? $"Patch {BlindDisplayLabel(column.Label)}{(column.IsRead ? " ✓" : "")}"
                 : $"{column.Label} — {column.SourceName}{(column.IsRead ? " ✓" : "")}";
@@ -466,7 +473,6 @@ public partial class MainWindow : Window
             DockPanel.SetDock(header, Dock.Top);
             panel.Children.Add(header);
 
-            var appliedFile = ColumnFile(column, selectedPath);
             var isGoldenDiff = golden is not null && column.Label != golden;
             var canRenderFile = appliedFile is not null &&
                 appliedFile.Status.Kind is not ApplyStatusKind.Failed and not ApplyStatusKind.Binary &&
@@ -523,6 +529,46 @@ public partial class MainWindow : Window
         }
         if (rightTabs.Length > 0)
             AddCollapsedStrip(rightTabs, CollapseSide.Right, gridColumn++);
+    }
+
+    private Button CreateCopyCodeButton(LoadedColumn column, AppliedFile? file)
+    {
+        var button = new Button
+        {
+            Content = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M 4,1 H 11 V 8 M 1,4 H 8 V 12 H 1 Z"),
+                Stroke = (Brush)FindResource("OneDarkText"),
+                StrokeThickness = 1.2, Width = 12, Height = 12, Stretch = Stretch.Uniform
+            },
+            Width = 24, Padding = new Thickness(3, 0, 3, 0),
+            Margin = new Thickness(2, 0, 2, 0), ToolTip = "copy code",
+            IsEnabled = ResultingCode.IsAvailable(file)
+        };
+        System.Windows.Automation.AutomationProperties.SetName(button, "copy code");
+        button.Click += (_, _) => CopyCode(column);
+        return button;
+    }
+
+    private void CopyCode(LoadedColumn column)
+    {
+        var code = ResultingCode.From(ColumnFile(column, selectedPath), baseKind == "synthetic");
+        if (code is null) return;
+        try
+        {
+            if (code.Text.Length == 0)
+                Clipboard.Clear();
+            else
+                Clipboard.SetText(code.Text);
+            StatusText.Text = $"Copied code · {BlindDisplayLabel(column.Label)} · {selectedPath}" +
+                (code.OmittedUnknownLines > 0
+                    ? $" — omitted {code.OmittedUnknownLines} unknown synthetic lines; choose a base for the complete file."
+                    : "");
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            StatusText.Text = "Could not copy code because the clipboard is busy. Try again.";
+        }
     }
 
     private void CaptureColumnWidths()

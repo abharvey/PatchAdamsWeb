@@ -115,7 +115,12 @@
                           ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
                           Cursor="SizeWE" Background="{StaticResource OneDarkControlBorder}"
                           DragCompleted="SidePanelSplitter_DragCompleted"/>
-            <Grid x:Name="ColumnsGrid" Grid.Column="2" Margin="4"/>
+            <DockPanel x:Name="CodeWorkspace" Grid.Column="2" Margin="4">
+                <TextBlock x:Name="SelectedFileText" DockPanel.Dock="Top" Visibility="Collapsed"
+                           FontSize="12" Foreground="{StaticResource OneDarkText}" Margin="4,0,4,3"
+                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                <Grid x:Name="ColumnsGrid"/>
+            </DockPanel>
             <GridSplitter x:Name="ReviewPanelSplitter" Grid.Column="3" Width="6"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                           ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" ShowsPreview="True"

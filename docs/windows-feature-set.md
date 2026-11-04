@@ -52,6 +52,12 @@ tests of the current engines and implementation tests for the Windows app.
   Tabs retain their patch names (blind labels in blind mode); one to four
   columns can remain expanded. Collapsed columns retain their findings, and
   sessions restore their side and width.
+- Show the selected file's relative path once above the patch columns, with
+  the full path available on hover. Each expanded patch has an accessible
+  copy icon with a "copy code" tooltip. Copy the complete available post-patch
+  text, independent of gutters, removals, golden mode, or reduced display.
+  Omit unknown synthetic-base placeholders and report the incomplete result;
+  do not offer code copying for missing, deleted, binary, or failed files.
 - The Files and Review side panels can be resized by dragging their dividers
   and independently collapsed to narrow side tabs. Their expanded widths and
   collapsed state are local display preferences rather than session review

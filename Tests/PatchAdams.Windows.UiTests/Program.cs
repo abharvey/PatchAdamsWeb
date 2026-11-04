@@ -32,7 +32,8 @@ internal static class Program
         {
             RunNavigationTests(window);
             RunScrollbarTests(window);
-            Console.WriteLine("PASS WPF navigation and compact scrollbars: focus, centering, track clicks, thumb drags, and wheel scrolling.");
+            RunCopyCodeTests(window);
+            Console.WriteLine("PASS WPF navigation, compact scrollbars, copy-code buttons, and shared file caption.");
             return 0;
         }
         catch (Exception error)
@@ -169,6 +170,60 @@ internal static class Program
         });
         Pump();
         Check(viewer.VerticalOffset > before, "mouse-wheel scrolling is preserved");
+    }
+
+    private static void RunCopyCodeTests(MainWindow window)
+    {
+        Invoke(window, "NavigateToPostLine", "B", "src/target.ts", 453);
+        Pump();
+        var caption = (TextBlock)window.FindName("SelectedFileText");
+        Check(caption.Text == "src/target.ts" && caption.Visibility == Visibility.Visible &&
+              (string?)caption.ToolTip == "src/target.ts", "one shared caption shows the full selected path");
+        var previousClipboard = Clipboard.GetDataObject();
+        try
+        {
+            var columns = ((IList)GetField(window, "columns")!).Cast<object>().ToArray();
+            foreach (var label in new[] { "A", "B" })
+            {
+                var column = columns.Single(item => (string?)item.GetType().GetProperty("Label")!.GetValue(item) == label);
+                var applied = (AppliedPatch)column.GetType().GetProperty("Applied")!.GetValue(column)!;
+                var expected = applied.FileAt("src/target.ts")!.PostText!;
+                var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)[label]!;
+                var copy = Descendants<Button>((DependencyObject)editor.Parent).Single(button => (string?)button.ToolTip == "copy code");
+                Check(copy.IsEnabled && copy.Content is System.Windows.Shapes.Path &&
+                      System.Windows.Automation.AutomationProperties.GetName(copy) == "copy code",
+                    $"{label} has an accessible copy icon beside the patch name");
+                copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Check(Clipboard.GetText() == expected, $"{label} copies its entire resulting file, not gutters or golden diff text");
+            }
+
+            ((MenuItem)window.FindName("ShowRemovedToggle")).IsChecked = false;
+            ((MenuItem)window.FindName("BlindModeToggle")).IsChecked = true;
+            Pump();
+            var target = columns.Single(item => (string?)item.GetType().GetProperty("Label")!.GetValue(item) == "B");
+            var targetFile = ((AppliedPatch)target.GetType().GetProperty("Applied")!.GetValue(target)!).FileAt("src/target.ts")!;
+            var targetEditor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["B"]!;
+            Descendants<Button>((DependencyObject)targetEditor.Parent).Single(button => (string?)button.ToolTip == "copy code")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Clipboard.GetText() == targetFile.PostText, "blind mode and removed-line visibility do not change copied code");
+
+            Invoke(window, "NavigateToPostLine", "B", "src/other.ts", 130);
+            Pump();
+            Check(caption.Text == "src/other.ts", "shared filename follows file navigation");
+            SetField(window, "selectedPath", "not-in-base.ts");
+            Invoke(window, "RenderColumns", null!, null!);
+            Pump();
+            Check(Descendants<Button>((Grid)window.FindName("ColumnsGrid"))
+                .Where(button => (string?)button.ToolTip == "copy code").All(button => !button.IsEnabled),
+                "copy buttons are disabled for unavailable files");
+        }
+        finally
+        {
+            if (previousClipboard is null)
+                Clipboard.Clear();
+            else
+                Clipboard.SetDataObject(previousClipboard, true);
+        }
     }
 
     private static void DragThumb(Thumb thumb, double horizontal, double vertical)

@@ -44,6 +44,8 @@ var tests = new (string Name, Action Run)[]
     ("large files collapse to patch hunks with context", SessionTests.HunksOnlyDisplayCollapsesContext),
     ("fixture navigation retains post-line mappings in golden and compact views", FixtureTests.NavigationRetainsPostLines),
     ("compact views reveal search targets outside changed hunks", SessionTests.CompactViewsRevealSearchTargets),
+    ("copy code uses resulting fixture text and omits unknown synthetic gaps", FixtureTests.ResultingCodeMatchesFixtures),
+    ("copy code preserves formatting and rejects unavailable results", ResultingCodeTests.FormattingAndAvailability),
     ("One Dark input and text colors meet AA contrast", ThemeContrastTests.OneDarkContrastMeetsAA),
     ("finding fields have visible labels and dark combo templates", ThemeContrastTests.FindingInputsAreLabeled),
     ("balance widths allocates current panel space by code demand", ColumnWidthTests.DistributesCurrentSpace),
@@ -298,6 +300,34 @@ static class FixtureTests
                         $"{name}/{file.Path} reveals exact target, including synthetic filler");
             }
         }
+    }
+
+    public static void ResultingCodeMatchesFixtures()
+    {
+        foreach (var name in ExpectedFiles.Keys)
+        {
+            var patch = UnifiedDiffParser.ParseFile(Path.Combine(FindRepositoryRoot(), name));
+            var applied = ApplyEngine.Apply(patch, new InMemoryFileProvider(SyntheticBase.For(patch)));
+            foreach (var file in applied.Files)
+            {
+                var copy = ResultingCode.From(file);
+                if (file.PostText is null)
+                    Assert.Equal<ResultingCode?>(null, copy, $"{name}/{file.Path} has no resulting code");
+                else
+                    Assert.Equal(file.PostText, copy!.Text, $"{name}/{file.Path} copies exact post-patch text");
+            }
+        }
+
+        var kettle = UnifiedDiffParser.ParseFile(Path.Combine(FindRepositoryRoot(), "kettle-1.patch"));
+        var main = ApplyEngine.Apply(kettle, new InMemoryFileProvider(SyntheticBase.For(kettle)))
+            .FileAt("cmd/server/main.go")!;
+        var known = ResultingCode.From(main, syntheticBase: true)!;
+        var expected = string.Join('\n', main.Change.Hunks.Single().Lines
+            .Where(line => line.Kind != PatchLineKind.Removed).Select(line => line.Text)) + "\n";
+        Assert.Equal(expected, known.Text, "synthetic copy contains only additions and known context");
+        Assert.True(known.OmittedUnknownLines > 0, "unknown source is reported, not exported as code");
+        Assert.True(known.Text.Contains("NewTaskQueue(8)", StringComparison.Ordinal) &&
+            !known.Text.Contains("NewTaskQueue(4)", StringComparison.Ordinal), "removed code is not copied");
     }
 
     private static int Count(Match match, string group) =>
@@ -924,6 +954,39 @@ sealed class TemporaryDirectory : IDisposable
     }
 }
 
+static class ResultingCodeTests
+{
+    public static void FormattingAndAvailability()
+    {
+        var text = "\tknown\r\n\r\n" + SyntheticBase.Filler(3) + "\r\nlast";
+        var file = AppliedFile.Unchanged("source.txt", text);
+        Assert.Equal(text, ResultingCode.From(file)!.Text, "real base preserves whitespace, CRLF, and marker-like source");
+        var partial = ResultingCode.From(file, syntheticBase: true)!;
+        Assert.Equal("\tknown\r\n\r\nlast", partial.Text, "omit inherited gaps without altering known formatting");
+        Assert.Equal(1, partial.OmittedUnknownLines, "unknown count");
+        var added = file with
+        {
+            Change = file.Change with { Kind = FileChangeKind.Added },
+            LineMap = new LineMap(new int?[4], [])
+        };
+        Assert.Equal(text, ResultingCode.From(added, syntheticBase: true)!.Text,
+            "candidate-added marker-like text remains real code");
+        var empty = AppliedFile.Unchanged("empty.txt", "");
+        Assert.True(ResultingCode.IsAvailable(empty), "an empty resulting file is available");
+        Assert.Equal("", ResultingCode.From(empty)!.Text, "empty file copies empty text");
+        Assert.Equal<ResultingCode?>(null, ResultingCode.From(null), "missing file cannot be copied");
+        Assert.Equal<ResultingCode?>(null, ResultingCode.From(file with
+        {
+            Change = file.Change with { Kind = FileChangeKind.Deleted }
+        }), "deleted file cannot be copied");
+        foreach (var status in new[] { ApplyStatusKind.Failed, ApplyStatusKind.Binary })
+            Assert.Equal<ResultingCode?>(null, ResultingCode.From(file with { Status = new ApplyStatus(status) }),
+                $"{status} file cannot be copied");
+        Assert.Equal(text, ResultingCode.From(file with { Status = new ApplyStatus(ApplyStatusKind.Fuzz, 1) })!.Text,
+            "successfully fuzz-applied results can be copied");
+    }
+}
+
 static class FeatureContractTests
 {
     public static void SafetyContractRemainsExplicit()
@@ -1118,9 +1181,13 @@ static class LayoutPreferencesTests
         Assert.True(splitters.Values.All(element =>
             (string?)element.Attribute("DragCompleted") == "SidePanelSplitter_DragCompleted"),
             "sidebar drags persist their widths");
-        var codeGrid = xaml.Descendants().Single(element =>
-            (string?)element.Attribute(ns + "Name") == "ColumnsGrid");
-        Assert.Equal("2", (string?)codeGrid.Attribute("Grid.Column"), "code panels stay between sidebars");
+        var workspace = xaml.Descendants().Single(element =>
+            (string?)element.Attribute(ns + "Name") == "CodeWorkspace");
+        Assert.Equal("2", (string?)workspace.Attribute("Grid.Column"), "code panels stay between sidebars");
+        Assert.True(workspace.Descendants().Any(element =>
+            (string?)element.Attribute(ns + "Name") == "SelectedFileText"), "selected file has one shared caption");
+        Assert.True(workspace.Descendants().Any(element =>
+            (string?)element.Attribute(ns + "Name") == "ColumnsGrid"), "columns share the file caption");
     }
 
     public static void SidebarWidthsRoundTrip()
