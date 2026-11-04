@@ -35,7 +35,7 @@ internal sealed class CodeEditor : RichTextBox
         Background = Brush("#282C33");
         Foreground = Plain;
         BorderBrush = Brush("#818A98");
-        Padding = new Thickness(6);
+        Padding = new Thickness(3);
         FontFamily = new FontFamily("Consolas");
         FontSize = 13;
         Document = new FlowDocument

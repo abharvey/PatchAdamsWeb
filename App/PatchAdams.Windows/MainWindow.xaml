@@ -115,7 +115,7 @@
                           ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
                           Cursor="SizeWE" Background="{StaticResource OneDarkControlBorder}"
                           DragCompleted="SidePanelSplitter_DragCompleted"/>
-            <Grid x:Name="ColumnsGrid" Grid.Column="2" Margin="6"/>
+            <Grid x:Name="ColumnsGrid" Grid.Column="2" Margin="4"/>
             <GridSplitter x:Name="ReviewPanelSplitter" Grid.Column="3" Width="6"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                           ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
