@@ -59,6 +59,24 @@ part of the session. The **Files** and
 Click their slim side tab to reopen them at their previous width; those widths
 are saved locally.
 
+## File heading and copy code
+
+The current file's relative path appears once above the patch panels, so it
+stays visible even with the Files panel collapsed. Hover a truncated path to
+see it in full.
+
+Each expanded patch header has a small copy icon with the tooltip **copy code**.
+It copies that patch's resulting file: additions plus retained source, without
+line numbers, diff prefixes, or removed lines. It copies the full available
+result, even when the view is scrolled, reduced to hunks, or comparing against
+a golden patch. Indentation, blank lines, and line endings are preserved.
+
+With a synthetic base, unknown placeholder lines are omitted and the status
+message reports how many were skipped. This is a partial reconstruction, not
+a complete source file; choose a real base to copy a complete result. Copy is
+unavailable for missing, deleted, binary, or failed-to-apply files. Copying a
+valid empty file clears the clipboard.
+
 ## Keyboard shortcuts
 
 | Keys | Action |

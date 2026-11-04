@@ -25,7 +25,7 @@ The test runner is dependency-free and uses the checked-in patch fixtures.
 `NuGet.Config` clears package feeds so restoring the C# projects does not
 download dependencies.
 
-For the Windows-only search-navigation UI regression checks:
+For the Windows-only navigation and scrollbar UI regression checks:
 
 ```powershell
 dotnet run --project Tests/PatchAdams.Windows.UiTests/PatchAdams.Windows.UiTests.csproj
@@ -33,7 +33,10 @@ dotnet run --project Tests/PatchAdams.Windows.UiTests/PatchAdams.Windows.UiTests
 
 This dependency-free STA runner opens its own test windows, exercises both
 search-result activation paths, and checks the destination's patch, file,
-line, keyboard focus, and viewport position after WPF layout. It creates
+line, keyboard focus, and viewport position after WPF layout. It also verifies
+compact scrollbar dimensions and interactions, shared file captions, and the
+copy-code buttons against the resulting file text. Clipboard tests temporarily
+use the clipboard and restore its previous data afterward. The runner creates
 synthetic test inputs under `artifacts/ui-navigation-tests`; it does not
 open user patch files, save preferences, or install the app.
 

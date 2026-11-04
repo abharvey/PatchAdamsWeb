@@ -52,6 +52,12 @@ tests of the current engines and implementation tests for the Windows app.
   Tabs retain their patch names (blind labels in blind mode); one to four
   columns can remain expanded. Collapsed columns retain their findings, and
   sessions restore their side and width.
+- Show the selected file's relative path once above the patch columns, with
+  the full path available on hover. Each expanded patch has an accessible
+  copy icon with a "copy code" tooltip. Copy the complete available post-patch
+  text, independent of gutters, removals, golden mode, or reduced display.
+  Omit unknown synthetic-base placeholders and report the incomplete result;
+  do not offer code copying for missing, deleted, binary, or failed files.
 - The Files and Review side panels can be resized by dragging their dividers
   and independently collapsed to narrow side tabs. Their expanded widths and
   collapsed state are local display preferences rather than session review
@@ -67,6 +73,10 @@ tests of the current engines and implementation tests for the Windows app.
   throughout the app. Normal input text and labels meet WCAG AA 4.5:1 contrast
   against their backgrounds; control boundaries and focus indicators meet
   3:1. Every finding field has a visible label.
+- Scrollbars use narrow 10-DIP dark tracks without arrow-button blocks,
+  with contrast-tested thumbs, hover/drag feedback, and a minimum thumb
+  length. Preserve thumb dragging, page clicks, and mouse-wheel scrolling.
+  Keep code-panel padding small to reserve space for reviewing.
 
 ## Comparison and navigation
 
