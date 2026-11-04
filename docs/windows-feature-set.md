@@ -81,7 +81,11 @@ tests of the current engines and implementation tests for the Windows app.
 - A reviewer can correct a wrong anchor manually; the override is persisted
   and takes precedence on reload.
 - Search text across all columns, grouped by file and column, with line
-  references. Pins preserve selections for later navigation.
+  references. Opening or double-clicking a result selects its file, expands
+  its patch if needed, and focuses the matching post-patch line near the
+  viewport midpoint (clamped at file boundaries). Navigation works in golden
+  and reduced large-file views without discarding the comparison mode.
+  Pins preserve selections for later navigation.
 - A golden column can be selected or cleared. Other columns display their
   diffs against its post-patch text; the golden column remains compared with
   the base. File status reflects the same comparison.

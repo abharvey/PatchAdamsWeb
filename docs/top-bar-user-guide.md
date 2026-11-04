@@ -42,7 +42,7 @@ creating a file.
 | Control | What it does |
 | --- | --- |
 | **Review > Golden patch** | Choose a patch as the comparison reference. A checkmark identifies the current choice. Other columns show their difference from its post-patch text. Choose **None** to return to the base comparison. |
-| **Search** + **Find** | Search loaded code in every patch column, without case sensitivity. Results are ordered by file, column, and line; open a result to jump there. |
+| **Search** + **Find** | Search loaded code in every patch column, without case sensitivity. Results are ordered by file, column, and line. Select a result and choose **Open location**, or double-click the result, to open its file, expand its patch if collapsed, and focus the matching line near the middle of the code view. Near file boundaries the line stays as close to the middle as scrolling permits. A hidden target outside a large file's visible hunks is revealed with surrounding context. |
 | **Review > Copy reference** | Copy the generated `filename Lstart:Lend` reference for selected code lines. A selection containing only removed lines uses `filename -Lstart:Lend` in base line numbers. Nothing is copied without a selection. |
 | **View > Scroll lock** | Keep expanded columns near the same base-line position while scrolling. Turn it off to scroll independently. |
 | **View > Smaller code font / Larger code font** | Decrease or increase code font size (9–24 pt). The choice is saved locally. |

@@ -42,6 +42,8 @@ var tests = new (string Name, Action Run)[]
     ("display lines retain dual gutters and removed-side references", SessionTests.DisplayLinesAndRemovedReference),
     ("deleted files still display their removed base lines", SessionTests.DeletedFileDisplaysBaseLines),
     ("large files collapse to patch hunks with context", SessionTests.HunksOnlyDisplayCollapsesContext),
+    ("fixture navigation retains post-line mappings in golden and compact views", FixtureTests.NavigationRetainsPostLines),
+    ("compact views reveal search targets outside changed hunks", SessionTests.CompactViewsRevealSearchTargets),
     ("One Dark input and text colors meet AA contrast", ThemeContrastTests.OneDarkContrastMeetsAA),
     ("finding fields have visible labels and dark combo templates", ThemeContrastTests.FindingInputsAreLabeled),
     ("balance widths allocates current panel space by code demand", ColumnWidthTests.DistributesCurrentSpace),
@@ -267,6 +269,37 @@ static class FixtureTests
         throw new InvalidOperationException("Expected malformed hunk to be rejected.");
     }
 
+    public static void NavigationRetainsPostLines()
+    {
+        foreach (var name in ExpectedFiles.Keys)
+        {
+            var patch = UnifiedDiffParser.ParseFile(Path.Combine(FindRepositoryRoot(), name));
+            var applied = ApplyEngine.Apply(patch, new InMemoryFileProvider(SyntheticBase.For(patch)));
+            foreach (var file in applied.Files.Where(file => file.PostText is not null))
+            {
+                var post = DiffEngine.SplitLines(file.PostText!);
+                var golden = DisplayLines.CreateGoldenComparison(file, file.BaseText ?? "");
+                Assert.SequenceEqual(Enumerable.Range(1, post.Count),
+                    golden.Where(row => row.PostLine.HasValue).Select(row => row.PostLine!.Value),
+                    $"{name}/{file.Path} golden rows retain candidate line numbers");
+                Assert.True(golden.Where(row => row.PostLine.HasValue)
+                    .All(row => row.Text == post[row.PostLine!.Value - 1]), "mapped golden text matches candidate");
+                Assert.True(golden.Where(row => row.Kind == DisplayLineKind.Removed)
+                    .All(row => row.PostLine is null), "removed golden rows cannot be search destinations");
+                if (post.Count == 0) continue;
+                var target = Math.Max(1, post.Count / 2);
+                foreach (var rows in new[]
+                {
+                    DisplayLines.Create(file, revealPostLine: target),
+                    DisplayLines.CreateHunksOnly(file, revealPostLine: target),
+                    DisplayLines.CreateGoldenComparison(file, file.BaseText ?? "", true, target)
+                })
+                    Assert.True(rows.Any(row => row.PostLine == target && row.Text == post[target - 1]),
+                        $"{name}/{file.Path} reveals exact target, including synthetic filler");
+            }
+        }
+    }
+
     private static int Count(Match match, string group) =>
         match.Groups[group].Success ? int.Parse(match.Groups[group].Value) : 1;
 
@@ -459,6 +492,22 @@ static class SessionTests
         Assert.True(reduced.Any(line => line.Text == "changed-line"), "changed line is retained");
         Assert.True(reduced.Any(line => line.Kind == DisplayLineKind.CollapsedContext),
             "hidden unchanged ranges are visible as markers");
+    }
+
+    public static void CompactViewsRevealSearchTargets()
+    {
+        var text = string.Join('\n', Enumerable.Range(1, 60_000).Select(line => $"line-{line}"));
+        var file = AppliedFile.Unchanged("large.txt", text);
+        Assert.True(DisplayLines.CreateHunksOnly(file).All(row => row.PostLine != 30_000),
+            "unchanged file is normally compacted");
+        var revealed = DisplayLines.CreateHunksOnly(file, contextRows: 40, revealPostLine: 30_000);
+        Assert.True(revealed.Any(row => row.PostLine == 30_000 && row.Text == "line-30000"),
+            "search can open unchanged context without a hunk");
+        Assert.True(revealed.Count < 100, "navigation does not expand the entire large file");
+        var comparison = DisplayLines.CreateGoldenComparison(file, text, true, 30_000);
+        Assert.True(comparison.Any(row => row.PostLine == 30_000 && row.Text == "line-30000"),
+            "golden view exposes the target outside diff hunks");
+        Assert.True(comparison.Count < 100, "golden navigation stays compact");
     }
 
     private static ReviewSession CreateSession(bool blind)

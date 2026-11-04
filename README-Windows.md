@@ -25,6 +25,18 @@ The test runner is dependency-free and uses the checked-in patch fixtures.
 `NuGet.Config` clears package feeds so restoring the C# projects does not
 download dependencies.
 
+For the Windows-only search-navigation UI regression checks:
+
+```powershell
+dotnet run --project Tests/PatchAdams.Windows.UiTests/PatchAdams.Windows.UiTests.csproj
+```
+
+This dependency-free STA runner opens its own test windows, exercises both
+search-result activation paths, and checks the destination's patch, file,
+line, keyboard focus, and viewport position after WPF layout. It creates
+synthetic test inputs under `artifacts/ui-navigation-tests`; it does not
+open user patch files, save preferences, or install the app.
+
 ## Install for the current user
 
 Run PowerShell from the repository root:

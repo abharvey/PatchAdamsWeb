@@ -63,6 +63,7 @@ public partial class MainWindow : Window
         ApplySidePanelLayout();
         ApplyRequestPanelLayout();
         FileTree.ItemsSource = visibleFiles;
+        FileTree.ItemContainerGenerator.StatusChanged += (_, _) => SynchronizeFileTreeSelection();
         FindingsList.ItemsSource = findingLabels;
         PinsList.ItemsSource = pins;
         ComparisonList.ItemsSource = comparisons;
@@ -347,9 +348,18 @@ public partial class MainWindow : Window
 
     private void FileTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        selectedPath = (e.NewValue as FileTreeEntry)?.Path ?? "";
+        if (e.NewValue is not FileTreeEntry entry || entry.Path == selectedPath) return;
+        selectedPath = entry.Path;
         recentSelections.Clear();
         RenderColumns();
+    }
+
+    private void SynchronizeFileTreeSelection()
+    {
+        var entry = visibleFiles.FirstOrDefault(item => item.Path == selectedPath);
+        if (entry is not null &&
+            FileTree.ItemContainerGenerator.ContainerFromItem(entry) is TreeViewItem treeItem)
+            treeItem.IsSelected = true;
     }
 
     private void TestsOnly_Changed(object sender, RoutedEventArgs e)
@@ -387,7 +397,7 @@ public partial class MainWindow : Window
         return unchanged;
     }
 
-    private void RenderColumns()
+    private void RenderColumns(string? revealLabel = null, int? revealPostLine = null)
     {
         CaptureColumnWidths();
         ColumnsGrid.Children.Clear();
@@ -463,16 +473,28 @@ public partial class MainWindow : Window
                 (appliedFile.PostText is not null || appliedFile.Change.Kind == FileChangeKind.Deleted);
             var isLargeFile = appliedFile is not null &&
                 Math.Max(appliedFile.LineMap.PostLineCount, appliedFile.LineMap.BaseLineCount) > 50_000;
-            IReadOnlyList<DisplayLine> displayLines = canRenderFile && !isGoldenDiff
-                ? isLargeFile
-                    ? DisplayLines.CreateHunksOnly(appliedFile!,
-                        includeRemoved: ShowRemovedToggle.IsChecked == true)
-                    : DisplayLines.Create(appliedFile!, includeRemoved: ShowRemovedToggle.IsChecked == true)
+            var targetLine = column.Label == revealLabel ? revealPostLine : null;
+            IReadOnlyList<DisplayLine> displayLines = canRenderFile
+                ? isGoldenDiff
+                    ? DisplayLines.CreateGoldenComparison(appliedFile!,
+                        ColumnFile(columns.First(item => item.Label == golden), selectedPath)?.PostText ?? "",
+                        isLargeFile, targetLine)
+                    : isLargeFile
+                        ? DisplayLines.CreateHunksOnly(appliedFile!, contextRows: targetLine.HasValue ? 40 : 3,
+                            includeRemoved: ShowRemovedToggle.IsChecked == true, revealPostLine: targetLine)
+                        : DisplayLines.Create(appliedFile!, includeRemoved: ShowRemovedToggle.IsChecked == true,
+                            revealPostLine: targetLine)
                 : [];
             var renderedText = !canRenderFile
-                ? RenderColumnText(column, null)
+                ? RenderColumnPlaceholder(column)
                 : isGoldenDiff
-                    ? RenderColumnText(column, appliedFile?.PostText, isLargeFile)
+                    ? string.Join('\n', displayLines.Select(line => (line.Kind switch
+                    {
+                        DisplayLineKind.Added => "+ ",
+                        DisplayLineKind.Removed => "- ",
+                        DisplayLineKind.CollapsedContext => "",
+                        _ => "  "
+                    }) + line.Text))
                     : RenderDisplayLines(displayLines);
             if (isLargeFile)
                 StatusText.Text = "Large file reduced to patch hunks with surrounding context.";
@@ -714,50 +736,12 @@ public partial class MainWindow : Window
             $"{(line.PostLine?.ToString() ?? "").PadLeft(postWidth)} | {line.Text}"));
     }
 
-    private string RenderColumnText(LoadedColumn column, string? text, bool compactLargeFiles = false)
+    private string RenderColumnPlaceholder(LoadedColumn column)
     {
-        if (text is null)
-        {
-            var file = column.Applied?.FileAt(selectedPath);
-            if (golden is not null && column.Label != golden &&
-                file?.Change.Kind == FileChangeKind.Deleted)
-                return RenderGoldenDiff(column, "", compactLargeFiles);
-            return file?.Status.Kind == ApplyStatusKind.Failed
-                ? $"[Failed to apply]\n{file.Status.Message}\n\nRaw patch hunks remain available in the source file."
-                : file?.Status.Kind == ApplyStatusKind.Binary ? "[Binary file change]" : "[File absent in this patch]";
-        }
-        if (golden is null || column.Label == golden)
-            return text;
-        return RenderGoldenDiff(column, text, compactLargeFiles);
-    }
-
-    private string RenderGoldenDiff(LoadedColumn column, string text, bool compactLargeFiles)
-    {
-        var goldenText = ColumnFile(columns.FirstOrDefault(item => item.Label == golden)!, selectedPath)?.PostText ?? "";
-        var diff = DiffEngine.Lines(goldenText, text);
-        var goldenLines = DiffEngine.SplitLines(goldenText);
-        var result = new List<string>();
-        foreach (var edit in diff.Edits)
-        {
-            if (edit.Kind == EditKind.Equal)
-            {
-                if (compactLargeFiles && edit.ALength > 6)
-                {
-                    result.AddRange(goldenLines.Skip(edit.AStart).Take(3).Select(line => "  " + line));
-                    result.Add($"… {edit.ALength - 6} unchanged lines outside diff hunks hidden …");
-                    result.AddRange(goldenLines.Skip(edit.AStart + edit.ALength - 3).Take(3).Select(line => "  " + line));
-                }
-                else
-                {
-                    result.AddRange(goldenLines.Skip(edit.AStart).Take(edit.ALength).Select(line => "  " + line));
-                }
-            }
-            else if (edit.Kind == EditKind.Delete)
-                result.AddRange(goldenLines.Skip(edit.AStart).Take(edit.ALength).Select(line => "- " + line));
-            else
-                result.AddRange(DiffEngine.SplitLines(text).Skip(edit.BStart).Take(edit.BLength).Select(line => "+ " + line));
-        }
-        return string.Join('\n', result);
+        var file = column.Applied?.FileAt(selectedPath);
+        return file?.Status.Kind == ApplyStatusKind.Failed
+            ? $"[Failed to apply]\n{file.Status.Message}\n\nRaw patch hunks remain available in the source file."
+            : file?.Status.Kind == ApplyStatusKind.Binary ? "[Binary file change]" : "[File absent in this patch]";
     }
 
     private void CodeSelectionChanged(object sender, RoutedEventArgs e)
@@ -845,7 +829,7 @@ public partial class MainWindow : Window
 
     private void CodeScrollChanged(object sender, ScrollChangedEventArgs e)
     {
-        if (synchronizingScroll || ScrollLockToggle.IsChecked != true ||
+        if (e.VerticalChange == 0 || synchronizingScroll || ScrollLockToggle.IsChecked != true ||
             sender is not ScrollViewer source || source.Tag is not EditorContext sourceContext ||
             sourceContext.DisplayLines.Count == 0)
             return;
@@ -1212,13 +1196,32 @@ public partial class MainWindow : Window
         var results = new SearchResultsWindow(query, ordered.Select(hit => hit.DisplayText).ToArray()) { Owner = this };
         if (results.ShowDialog() != true || results.SelectedIndex < 0) return;
         var selected = ordered[results.SelectedIndex];
-        selectedPath = selected.File.Path;
-        RenderColumns();
-        if (!codeEditors.TryGetValue(selected.Column.Label, out var editor) ||
+        NavigateToPostLine(selected.Column.Label, selected.File.Path, selected.Line);
+    }
+
+    private void NavigateToPostLine(string label, string path, int postLine)
+    {
+        var column = columns.FirstOrDefault(item => item.Label == label);
+        if (column is null) return;
+        column.IsHidden = false;
+        var entry = files.FirstOrDefault(item => item.Path == path);
+        if (TestsOnlyToggle.IsChecked == true && entry?.IsTest != true)
+            TestsOnlyToggle.IsChecked = false;
+        selectedPath = path;
+        recentSelections.Clear();
+        FileTree.UpdateLayout();
+        SynchronizeFileTreeSelection();
+        // Expose the requested row even outside a large file's visible hunks.
+        RenderColumns(label, postLine);
+        if (!codeEditors.TryGetValue(label, out var editor) ||
             editor.Tag is not EditorContext context)
             return;
-        var row = context.DisplayLines.ToList().FindIndex(line => line.PostLine == selected.Line);
-        if (row >= 0) editor.ScrollToRow(row);
+        var row = context.DisplayLines.ToList().FindIndex(line => line.PostLine == postLine);
+        if (row >= 0)
+        {
+            editor.NavigateToRow(row);
+            StatusText.Text = $"{BlindDisplayLabel(label)} · {path} L{postLine}";
+        }
     }
 
     private static string StatusFor(AppliedFile? file)
@@ -1627,20 +1630,26 @@ internal sealed class SearchResultsWindow : Window
         };
         buttons.Children.Add(new Button { Content = "Close", IsCancel = true });
         var open = new Button { Content = "Open location", IsDefault = true };
-        open.Click += (_, _) =>
-        {
-            if (results.SelectedIndex >= 0)
-                DialogResult = true;
-        };
+        open.Click += (_, _) => OpenSelectedLocation();
         buttons.Children.Add(open);
         DockPanel.SetDock(buttons, Dock.Bottom);
         panel.Children.Add(buttons);
         panel.Children.Add(results);
         Content = panel;
-        results.MouseDoubleClick += (_, _) =>
+        results.MouseDoubleClick += (_, e) =>
         {
-            if (results.SelectedIndex >= 0)
-                DialogResult = true;
+            if (e.OriginalSource is DependencyObject source &&
+                ItemsControl.ContainerFromElement(results, source) is ListBoxItem)
+            {
+                OpenSelectedLocation();
+                e.Handled = true;
+            }
         };
+    }
+
+    private void OpenSelectedLocation()
+    {
+        if (results.SelectedIndex >= 0)
+            DialogResult = true;
     }
 }

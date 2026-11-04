@@ -16,7 +16,8 @@ public static class DisplayLines
     public static IReadOnlyList<DisplayLine> Create(
         AppliedFile file,
         bool collapseSyntheticFiller = true,
-        bool includeRemoved = true)
+        bool includeRemoved = true,
+        int? revealPostLine = null)
     {
         var baseLines = DiffEngine.SplitLines(file.BaseText ?? "");
         var postLines = DiffEngine.SplitLines(file.PostText ?? "");
@@ -43,12 +44,14 @@ public static class DisplayLines
             }
 
             if (collapseSyntheticFiller && SyntheticBase.IsFiller(baseLines[baseIndex]) &&
-                postIndex < postLines.Count && SyntheticBase.IsFiller(postLines[postIndex]))
+                postIndex < postLines.Count && SyntheticBase.IsFiller(postLines[postIndex]) &&
+                postIndex + 1 != revealPostLine)
             {
                 var count = 0;
                 while (baseIndex < baseLines.Count && postIndex < postLines.Count &&
                        file.LineMap.PostForBase(baseIndex + 1) == postIndex + 1 &&
-                       SyntheticBase.IsFiller(baseLines[baseIndex]) && SyntheticBase.IsFiller(postLines[postIndex]))
+                       SyntheticBase.IsFiller(baseLines[baseIndex]) && SyntheticBase.IsFiller(postLines[postIndex]) &&
+                       postIndex + 1 != revealPostLine)
                 {
                     baseIndex++;
                     postIndex++;
@@ -78,17 +81,21 @@ public static class DisplayLines
         AppliedFile file,
         int contextRows = 3,
         bool collapseSyntheticFiller = true,
-        bool includeRemoved = true)
+        bool includeRemoved = true,
+        int? revealPostLine = null)
     {
         if (contextRows < 0)
             throw new ArgumentOutOfRangeException(nameof(contextRows));
-        var full = Create(file, collapseSyntheticFiller, includeRemoved);
+        var full = Create(file, collapseSyntheticFiller, includeRemoved, revealPostLine);
         if (full.Count == 0)
             return [];
-        if (file.Hunks.Count == 0)
-            return [Collapsed(full.Count)];
 
         var visible = new bool[full.Count];
+        for (var row = 0; row < full.Count; row++)
+            if (full[row].PostLine == revealPostLine && revealPostLine.HasValue)
+                for (var nearby = Math.Max(0, row - contextRows);
+                     nearby <= Math.Min(full.Count - 1, row + contextRows); nearby++)
+                    visible[nearby] = true;
         foreach (var placement in file.Hunks)
         {
             if (placement.Index < 0 || placement.Index >= file.Change.Hunks.Count)
@@ -133,6 +140,50 @@ public static class DisplayLines
             output.Add(Collapsed(index - start));
         }
         return output;
+    }
+
+    /// <summary>Golden comparison rows keep the candidate's real line numbers for navigation.</summary>
+    public static IReadOnlyList<DisplayLine> CreateGoldenComparison(
+        AppliedFile file, string referenceText, bool compactLargeFiles = false, int? revealPostLine = null)
+    {
+        var reference = DiffEngine.SplitLines(referenceText);
+        var post = DiffEngine.SplitLines(file.PostText ?? "");
+        var result = new List<DisplayLine>();
+        foreach (var edit in DiffEngine.Lines(reference, post).Edits)
+        {
+            if (edit.Kind == EditKind.Delete)
+            {
+                for (var offset = 0; offset < edit.ALength; offset++)
+                    result.Add(new DisplayLine(DisplayLineKind.Removed, null, null, reference[edit.AStart + offset]));
+                continue;
+            }
+
+            var hidden = 0;
+            for (var offset = 0; offset < edit.BLength; offset++)
+            {
+                var postLine = edit.BStart + offset + 1;
+                if (compactLargeFiles && edit.Kind == EditKind.Equal && offset >= 3 &&
+                    offset < edit.BLength - 3 &&
+                    !(revealPostLine is int target && Math.Abs(postLine - target) <= 40))
+                {
+                    hidden++;
+                    continue;
+                }
+                FlushHidden();
+                result.Add(new DisplayLine(edit.Kind == EditKind.Insert ? DisplayLineKind.Added : DisplayLineKind.Context,
+                    file.LineMap.BaseForPost(postLine), postLine, post[postLine - 1]));
+            }
+            FlushHidden();
+
+            void FlushHidden()
+            {
+                if (hidden == 0) return;
+                result.Add(new DisplayLine(DisplayLineKind.CollapsedContext, null, null,
+                    $"… {hidden} unchanged lines outside diff hunks hidden …", hidden));
+                hidden = 0;
+            }
+        }
+        return result;
     }
 
     private static DisplayLine Collapsed(int count) =>
