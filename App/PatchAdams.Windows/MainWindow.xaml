@@ -51,13 +51,14 @@
                         <MenuItem Header="_Copy Markdown" Click="CopyMarkdown_Click" InputGestureText="Ctrl+Alt+E"/>
                     </MenuItem>
                 </Menu>
-                <DockPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                    <Button DockPanel.Dock="Right" Content="Find" Click="Search_Click"/>
-                    <Label DockPanel.Dock="Left" Content="_Search:" Target="{Binding ElementName=SearchBox}"
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left"
+                            Margin="12,0,0,0" VerticalAlignment="Center">
+                    <Label Content="_Search:" Target="{Binding ElementName=SearchBox}"
                            VerticalAlignment="Center"/>
-                    <TextBox x:Name="SearchBox" MaxWidth="220" MinWidth="60" HorizontalAlignment="Stretch"
+                    <TextBox x:Name="SearchBox" Width="220" Margin="4,0,6,0"
                              VerticalContentAlignment="Center" KeyDown="SearchBox_KeyDown"/>
-                </DockPanel>
+                    <Button Content="Find" Click="Search_Click"/>
+                </StackPanel>
             </DockPanel>
         </Border>
         <Border x:Name="RequestPanel" DockPanel.Dock="Top" Background="#2F343E" Padding="8">

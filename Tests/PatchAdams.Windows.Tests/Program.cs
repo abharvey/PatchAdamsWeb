@@ -1039,6 +1039,12 @@ static class LayoutPreferencesTests
         XNamespace ns = "http://schemas.microsoft.com/winfx/2006/xaml";
         var search = xaml.Descendants().Single(element => (string?)element.Attribute(ns + "Name") == "SearchBox");
         Assert.True(!search.Ancestors().Contains(menu), "search stays outside dropdowns");
+        var searchGroup = search.Parent!;
+        Assert.Equal("StackPanel", searchGroup.Name.LocalName, "search controls stay together");
+        Assert.Equal("Horizontal", (string?)searchGroup.Attribute("Orientation"), "search is one compact row");
+        Assert.Equal("Left", (string?)searchGroup.Attribute("HorizontalAlignment"), "search follows the menus");
+        Assert.SequenceEqual(new[] { "Label", "TextBox", "Button" },
+            searchGroup.Elements().Select(element => element.Name.LocalName), "Find follows its input");
         var request = menu.Descendants().Single(element =>
             (string?)element.Attribute(ns + "Name") == "RequestPanelToggle");
         Assert.Equal("True", (string?)request.Attribute("IsCheckable"), "request visibility is checkable");
