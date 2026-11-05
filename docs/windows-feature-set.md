@@ -89,6 +89,14 @@ tests of the current engines and implementation tests for the Windows app.
   released, followed by 200 ms without further selection interaction. Run
   alignment off the UI thread, cancel superseded work, and never publish
   results for a replaced selection, file, or editor.
+- Hold Ctrl while dragging to add disconnected whole-line ranges in the same
+  patch and file. Keep earlier ranges visibly highlighted. A plain drag,
+  unmodified navigation key, or Esc starts over; Shift-based selection can
+  extend the active range. Merge overlapping or adjacent ranges, never their gaps.
+- Generate references for every selected range, retaining separate post-patch
+  `L` and removed-base `-L` anchors. Compare each post-patch range separately.
+  Copying a disconnected selection copies its source lines without gutters
+  or intervening unselected lines.
 - Alignment uses line maps and positional matching, token similarity, and
   identifier matching for declarations. Confidence below 0.6 is reported as
   absent rather than presenting a low-confidence match as correct.
@@ -110,6 +118,11 @@ tests of the current engines and implementation tests for the Windows app.
 
 - Create findings from a selection so the patch, file, and reference are
   generated from the selected lines, never typed as a free-form reference.
+- A finding or pin can contain multiple disconnected ranges. Restore all its
+  ranges when navigating, revealing selected removed lines or compact-view
+  context as needed. Open saved anchors against the shared base if the target
+  is currently showing a golden comparison. Manual anchor corrections still
+  require one contiguous post-patch range in each column.
 - Store title, category, severity, description, request relevance, optional
   note, and a not-flagged review disposition. Findings remain anchored to
   their patch and line range.

@@ -34,7 +34,8 @@ internal static class Program
             RunScrollbarTests(window);
             RunCopyCodeTests(window);
             RunSelectionTests(window);
-            Console.WriteLine("PASS WPF navigation, scrollbars, copy code, captions, and deferred selection processing.");
+            RunDisconnectedSelectionTests(window);
+            Console.WriteLine("PASS WPF navigation, scrollbars, copy code, deferred processing, and disconnected selections.");
             return 0;
         }
         catch (Exception error)
@@ -367,7 +368,8 @@ internal static class Program
             Check(((TextBlock)window.FindName("ReferenceText")).Text == "A — target.ts L11:L11",
                 "cancelled work cannot overwrite the latest reference");
             var cache = GetField(window, "selectionCache")!;
-            Check((ValueTuple<int, int>)cache.GetType().GetProperty("Rows")!.GetValue(cache)! == (10, 10),
+            Check(((IEnumerable<LineSpan>)cache.GetType().GetProperty("Rows")!.GetValue(cache)!)
+                    .SequenceEqual([new LineSpan(11, 11)]),
                 "only the latest row range enters the comparison cache");
         }
         finally
@@ -380,6 +382,176 @@ internal static class Program
     }
 
     private static IList Comparisons(MainWindow window) => (IList)GetField(window, "comparisons")!;
+
+    private static void RunDisconnectedSelectionTests(MainWindow window)
+    {
+        ((MenuItem)window.FindName("ShowRemovedToggle")).IsChecked = true;
+        Invoke(window, "NavigateToPostLine", "A", "src/target.ts", 100);
+        Pump();
+        var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+        SelectPostLines(editor, 100, 105);
+        WaitUntil(() => SelectionReady(window, "target.ts L100:L105"), "initial line range settles");
+        AddCtrlRange(editor, () => SelectPostLines(editor, 20, 21), releaseControl: false);
+        PumpFor(250);
+        Check(GetField(window, "selection") is null, "Ctrl remains an active interaction between disconnected drags");
+        KeyInput(editor, Key.LeftCtrl, Keyboard.PreviewKeyUpEvent);
+        var reference = (TextBlock)window.FindName("ReferenceText");
+        WaitUntil(() => reference.Text == "A — target.ts L20:L21, L100:L105" &&
+                        SelectionReady(window, "target.ts L20:L21, L100:L105"), "Ctrl+drag combines separated ranges");
+        Check(SelectedRowSpans(editor).Count == 2, "selected rows do not include the gap");
+        var display = EditorLines(editor);
+        var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        var selectedRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 100);
+        var gapRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 50);
+        Check((paragraphs[selectedRow].Background as SolidColorBrush)?.Color == Color.FromRgb(62, 82, 111) &&
+              (paragraphs[gapRow].Background as SolidColorBrush)?.Color != Color.FromRgb(62, 82, 111),
+            "retained ranges stay highlighted without painting intervening lines");
+        Check(Comparisons(window).Count == 2, "each post-patch range gets a separate comparison");
+        var vertical = Descendants<ScrollBar>(editor).Single(bar => bar.Orientation == Orientation.Vertical);
+        vertical.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = Mouse.PreviewMouseDownEvent });
+        vertical.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = Mouse.PreviewMouseUpEvent });
+        Check(SelectedRowSpans(editor).Count == 2, "scrollbar interaction preserves disconnected highlights");
+
+        AddCtrlRange(editor, () => SelectPostLines(editor, 104, 108));
+        WaitUntil(() => reference.Text == "A — target.ts L20:L21, L100:L108" &&
+                        SelectionReady(window, "target.ts L20:L21, L100:L108"), "overlapping ranges merge without duplicates");
+        var removedRow = Enumerable.Range(0, display.Count).First(row =>
+            display[row].PostLine is null && display[row].BaseLine == 100);
+        AddCtrlRange(editor, () => editor.Selection.Select(paragraphs[removedRow].ContentStart,
+            paragraphs[removedRow].ContentEnd));
+        const string expectedReference = "target.ts L20:L21, L100:L108, -L100:L100";
+        WaitUntil(() => reference.Text == "A — " + expectedReference &&
+                        SelectionReady(window, expectedReference), "removed and post-patch ranges keep separate anchors");
+
+        var previousClipboard = Clipboard.GetDataObject();
+        try
+        {
+            ApplicationCommands.Copy.Execute(null, editor);
+            var text = Clipboard.GetText();
+            Check(text.Contains("needle-20", StringComparison.Ordinal) && text.Contains("needle-108", StringComparison.Ordinal) &&
+                  !text.Contains("needle-50", StringComparison.Ordinal) && !text.Contains(" | ", StringComparison.Ordinal),
+                "copy includes selected source lines only, with neither gaps nor gutters");
+        }
+        finally
+        {
+            if (previousClipboard is null) Clipboard.Clear();
+            else Clipboard.SetDataObject(previousClipboard, true);
+        }
+
+        Invoke(window, "PinSelection_Click", window, new RoutedEventArgs());
+        AddTestFinding(window, expectedReference);
+        var findings = ((IList)GetField(window, "findings")!).Cast<SessionFinding>().ToArray();
+        var finding = findings[^1];
+        var pin = ((IList)GetField(window, "pins")!).Cast<SessionPin>().Last();
+        Check(finding.SelectedRanges.Count == 3 && pin.SelectedRanges.SequenceEqual(finding.SelectedRanges),
+            "one finding and one pin retain all disconnected ranges and sides");
+        var session = (ReviewSession)Invoke(window, "BuildSession")!;
+        var columns = ((IList)GetField(window, "columns")!).Cast<object>().ToArray();
+        var patches = columns.ToDictionary(column => (string)column.GetType().GetProperty("Label")!.GetValue(column)!,
+            column => (string)column.GetType().GetProperty("PatchText")!.GetValue(column)!);
+        var package = Path.Combine(Path.GetDirectoryName((string)GetField(window, "basePath")!)!, "disconnected.patchadam");
+        SessionPackage.Write(new SessionContents(session, patches), package);
+        var reopened = SessionPackage.Read(package).Session;
+        Check(reopened.Findings.Last().SelectedRanges.SequenceEqual(finding.SelectedRanges) &&
+              MarkdownExport.Render(reopened).Contains(expectedReference, StringComparison.Ordinal),
+            "saved session and export preserve every range");
+
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyDownEvent);
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyUpEvent);
+        Check(SelectedRowSpans(editor).Count == 0, "Esc clears native and retained selections");
+        SelectPostLines(editor, 20, 21);
+        AddCtrlRange(editor, () => SelectPostLines(editor, 100, 105));
+        MouseInput(editor, Mouse.PreviewMouseDownEvent);
+        SelectPostLines(editor, 40, 41);
+        MouseInput(editor, Mouse.PreviewMouseUpEvent);
+        WaitUntil(() => reference.Text == "A — target.ts L40:L41", "ordinary drag replaces all disconnected ranges");
+        Check(SelectedRowSpans(editor).Count == 1, "ordinary selection leaves no hidden retained range");
+
+        ((MenuItem)window.FindName("ShowRemovedToggle")).IsChecked = false;
+        ((ListBox)window.FindName("FindingsList")).SelectedIndex = findings.Length - 1;
+        Pump();
+        WaitUntil(() => reference.Text == "A — " + expectedReference &&
+                        SelectionReady(window, expectedReference), "opening a finding restores every range");
+        editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+        Check(EditorLines(editor).Any(line => line.PostLine is null && line.BaseLine == 100),
+            "finding navigation reveals saved removed lines even when removed lines are hidden");
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyDownEvent);
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyUpEvent);
+        display = EditorLines(editor);
+        paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        selectedRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 105);
+        gapRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 50);
+        Check((paragraphs[selectedRow].Background as SolidColorBrush)?.Color == Color.FromRgb(65, 67, 47) &&
+              paragraphs[gapRow].Background is null,
+            "finding severity paints its ranges, never their bounding envelope");
+        ((ListBox)window.FindName("PinsList")).SelectedItem = pin;
+        Pump();
+        WaitUntil(() => reference.Text == "A — " + expectedReference, "opening a pin restores every range");
+    }
+
+    private static bool SelectionReady(MainWindow window, string reference)
+    {
+        var cache = GetField(window, "selectionCache");
+        if (cache is null || GetField(window, "comparisonCancellation") is not null) return false;
+        var selection = cache.GetType().GetProperty("Selection")!.GetValue(cache)!;
+        return (string?)selection.GetType().GetProperty("Reference")!.GetValue(selection) == reference;
+    }
+
+    private static void AddTestFinding(MainWindow window, string expectedReference)
+    {
+        Exception? failure = null;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        timer.Tick += (_, _) =>
+        {
+            var dialog = Application.Current.Windows.OfType<FindingDialog>().FirstOrDefault();
+            if (dialog is null) return;
+            timer.Stop();
+            try
+            {
+                Check(((TextBlock)dialog.FindName("ReferenceLabel")).Text == expectedReference,
+                    "finding dialog shows the complete disconnected reference");
+                ((TextBox)dialog.FindName("TitleBox")).Text = "Related disconnected lines";
+                ((TextBox)dialog.FindName("DescriptionBox")).Text = "These regions describe the same issue.";
+                Descendants<Button>(dialog).Single(button => (string?)button.Content == "Save")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }
+            catch (Exception error)
+            {
+                failure = error;
+                dialog.Close();
+            }
+        };
+        timer.Start();
+        try { Invoke(window, "AddFinding_Click", window, new RoutedEventArgs()); }
+        finally { timer.Stop(); }
+        if (failure is not null) throw failure;
+    }
+
+    private static void AddCtrlRange(RichTextBox editor, Action select, bool releaseControl = true)
+    {
+        KeyInput(editor, Key.LeftCtrl, Keyboard.PreviewKeyDownEvent);
+        MouseInput(editor, Mouse.PreviewMouseDownEvent);
+        select();
+        MouseInput(editor, Mouse.PreviewMouseUpEvent);
+        if (releaseControl) KeyInput(editor, Key.LeftCtrl, Keyboard.PreviewKeyUpEvent);
+    }
+
+    private static IReadOnlyList<DisplayLine> EditorLines(RichTextBox editor) =>
+        (IReadOnlyList<DisplayLine>)editor.GetType().GetProperty("DisplayLines")!.GetValue(editor)!;
+
+    private static IReadOnlyList<LineSpan> SelectedRowSpans(RichTextBox editor) =>
+        (IReadOnlyList<LineSpan>)editor.GetType().GetMethod("SelectedRowSpans")!.Invoke(editor, null)!;
+
+    private static void SelectPostLines(RichTextBox editor, int first, int last)
+    {
+        var display = EditorLines(editor);
+        var start = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == first);
+        var end = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == last);
+        var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        editor.Selection.Select(paragraphs[start].ContentStart, paragraphs[end].ContentEnd);
+    }
 
     private static void MouseInput(RichTextBox editor, RoutedEvent routedEvent) =>
         editor.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)

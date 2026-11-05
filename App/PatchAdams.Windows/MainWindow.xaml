@@ -139,7 +139,9 @@
                                 <TextBlock Text="Selection reference" FontWeight="SemiBold"/>
                                 <TextBlock x:Name="ReferenceText" Text="Select lines in a column to generate a reference."
                                            TextWrapping="Wrap" Margin="0,4,0,12"/>
-                                <TextBlock Text="Compare this region" FontWeight="SemiBold"/>
+                                <TextBlock Text="Ctrl+drag adds a range. Drag without Ctrl or press Esc to start over."
+                                           TextWrapping="Wrap" FontSize="11" Margin="0,0,0,10"/>
+                                <TextBlock Text="Compare selected ranges" FontWeight="SemiBold"/>
                                 <ListBox x:Name="ComparisonList" Height="150" Margin="0,4,0,10"
                                          DisplayMemberPath="DisplayText" SelectionChanged="ComparisonList_SelectionChanged"/>
                                 <TextBlock Text="Findings" FontWeight="SemiBold"/>

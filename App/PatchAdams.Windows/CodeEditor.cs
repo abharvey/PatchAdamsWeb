@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -23,6 +24,8 @@ internal sealed class CodeEditor : RichTextBox
     private readonly Dictionary<int, int> baseRowIndexes = [];
     private readonly List<DisplayLine> displayLines = [];
     private readonly List<string> plainLines = [];
+    private readonly List<Brush?> rowBackgrounds = [];
+    private IReadOnlyList<LineSpan> retainedRowSpans = [];
     private readonly HashSet<Key> pressedKeys = [];
     private readonly HashSet<MouseButton> pressedButtons = [];
     private readonly DispatcherTimer selectionTimer;
@@ -36,6 +39,10 @@ internal sealed class CodeEditor : RichTextBox
 
     public IReadOnlyList<DisplayLine> DisplayLines => displayLines;
     public IReadOnlyList<string> PlainLines => plainLines;
+    private bool ControlPressed => Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ||
+        pressedKeys.Contains(Key.LeftCtrl) || pressedKeys.Contains(Key.RightCtrl);
+    private bool ShiftPressed => Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ||
+        pressedKeys.Contains(Key.LeftShift) || pressedKeys.Contains(Key.RightShift);
 
     public CodeEditor()
     {
@@ -45,6 +52,7 @@ internal sealed class CodeEditor : RichTextBox
         };
         selectionTimer.Tick += SelectionTimer_Tick;
         Unloaded += (_, _) => CancelPendingSelection();
+        AddHandler(CommandManager.PreviewExecutedEvent, new ExecutedRoutedEventHandler(CopyDisconnectedSelection));
         IsReadOnly = true;
         IsReadOnlyCaretVisible = true;
         CaretBrush = Brush("#E5C07B");
@@ -77,9 +85,24 @@ internal sealed class CodeEditor : RichTextBox
 
     protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
     {
+        if (e.ChangedButton == MouseButton.Left && !IsScrollBarInteraction(e.OriginalSource))
+        {
+            if (ControlPressed)
+                RetainActiveSelection();
+            else
+                SetRetainedRows([]);
+        }
         pressedButtons.Add(e.ChangedButton);
         InvalidateSelection();
         base.OnPreviewMouseDown(e);
+    }
+
+    private bool IsScrollBarInteraction(object source)
+    {
+        for (var element = source as DependencyObject; element is not null && element != this;
+             element = element is Visual ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element))
+            if (element is ScrollBar) return true;
+        return false;
     }
 
     protected override void OnPreviewMouseUp(MouseButtonEventArgs e)
@@ -100,7 +123,19 @@ internal sealed class CodeEditor : RichTextBox
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         lostKeyboardFocus = false;
-        pressedKeys.Add(e.Key == Key.System ? e.SystemKey : e.Key);
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        pressedKeys.Add(key);
+        if (key == Key.Escape)
+        {
+            SetRetainedRows([]);
+            Selection.Select(CaretPosition, CaretPosition);
+            e.Handled = true;
+        }
+        else if (key == Key.A && ControlPressed)
+            SetRetainedRows([]);
+        else if (key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown &&
+                 !ShiftPressed)
+            SetRetainedRows([]);
         InvalidateSelection();
         base.OnPreviewKeyDown(e);
     }
@@ -179,8 +214,10 @@ internal sealed class CodeEditor : RichTextBox
         IReadOnlyList<SessionFinding>? findings = null)
     {
         CancelPendingSelection();
+        SetRetainedRows([]);
         Document.Blocks.Clear();
         rows.Clear();
+        rowBackgrounds.Clear();
         rowIndexes.Clear();
         baseRowIndexes.Clear();
         displayLines.Clear();
@@ -191,6 +228,8 @@ internal sealed class CodeEditor : RichTextBox
         rowHeight = FontSize * 1.15;
         var longestLine = displayRows.Select(line => line.Length).DefaultIfEmpty(0).Max();
         Document.PageWidth = Math.Max(640, longestLine * FontSize * 0.8 + 32);
+        var findingRanges = findings?.Where(finding => !finding.NotFlagged)
+            .Select(finding => (Finding: finding, Ranges: finding.SelectedRanges)).ToArray() ?? [];
         for (var index = 0; index < displayRows.Length; index++)
         {
             var line = displayRows[index];
@@ -212,13 +251,11 @@ internal sealed class CodeEditor : RichTextBox
             {
                 paragraph.Background = Brush("#472D33");
             }
-            if (index < mappedLines.Count && findings is not null)
+            if (index < mappedLines.Count)
             {
                 var displayLine = mappedLines[index];
-                var finding = findings.FirstOrDefault(item => !item.NotFlagged &&
-                    ((displayLine.PostLine is int post && post >= item.Lines.Lower && post <= item.Lines.Upper) ||
-                     (displayLine.PostLine is null && displayLine.BaseLine is int baseLine &&
-                      baseLine >= item.Lines.Lower && baseLine <= item.Lines.Upper)));
+                var finding = findingRanges.FirstOrDefault(item =>
+                    item.Ranges.Any(range => range.Contains(displayLine))).Finding;
                 if (finding is not null)
                     paragraph.Background = FindingBrush(finding.Severity);
             }
@@ -228,6 +265,7 @@ internal sealed class CodeEditor : RichTextBox
             if (index < mappedLines.Count && mappedLines[index].BaseLine is int baseLine)
                 baseRowIndexes.TryAdd(baseLine, index);
             rows.Add(paragraph);
+            rowBackgrounds.Add(paragraph.Background);
         }
         CancelPendingSelection();
     }
@@ -252,6 +290,58 @@ internal sealed class CodeEditor : RichTextBox
         return (start, Math.Max(start, end));
     }
 
+    /// <summary>Returns one-based display-row spans, including retained Ctrl selections.</summary>
+    public IReadOnlyList<LineSpan> SelectedRowSpans()
+    {
+        var active = SelectedRows();
+        return LineSpan.Normalize(active is { } selected
+            ? retainedRowSpans.Append(new LineSpan(selected.Start + 1, selected.End + 1))
+            : retainedRowSpans);
+    }
+
+    private void RetainActiveSelection()
+    {
+        SetRetainedRows(SelectedRowSpans());
+        // Start a fresh native drag, including when it begins inside the previous range.
+        // Otherwise WPF can treat Ctrl+drag as dragging the old selected text.
+        Selection.Select(CaretPosition, CaretPosition);
+    }
+
+    private void SetRetainedRows(IReadOnlyList<LineSpan> spans)
+    {
+        var previous = retainedRowSpans;
+        if (previous.SequenceEqual(spans)) return;
+        foreach (var span in previous)
+            for (var row = span.Lower - 1; row < span.Upper; row++)
+                if (!spans.Any(next => next.Contains(row + 1)))
+                    rows[row].Background = rowBackgrounds[row];
+        retainedRowSpans = spans;
+        foreach (var span in retainedRowSpans)
+            for (var row = span.Lower - 1; row < span.Upper; row++)
+                if (!previous.Any(old => old.Contains(row + 1)))
+                    rows[row].Background = RetainedSelection;
+    }
+
+    private static readonly Brush RetainedSelection = Brush("#3E526F");
+
+    private void CopyDisconnectedSelection(object sender, ExecutedRoutedEventArgs e)
+    {
+        if (e.Command != ApplicationCommands.Copy || retainedRowSpans.Count == 0) return;
+        var text = string.Join(Environment.NewLine + Environment.NewLine, SelectedRowSpans().Select(span =>
+            string.Join(Environment.NewLine, Enumerable.Range(span.Lower - 1, span.Upper - span.Lower + 1)
+                .Select(row => row < displayLines.Count ? displayLines[row].Text : plainLines[row]))));
+        try
+        {
+            if (text.Length == 0) Clipboard.Clear();
+            else Clipboard.SetText(text);
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            // A busy clipboard must not interrupt selection or discard retained ranges.
+        }
+        e.Handled = true;
+    }
+
     public int RowForBaseLine(int baseLine) => baseRowIndexes.GetValueOrDefault(baseLine, -1);
 
     public int FirstVisibleRow()
@@ -269,7 +359,21 @@ internal sealed class CodeEditor : RichTextBox
     public void SelectRows(int start, int end)
     {
         if (start < 0 || end < start || end >= rows.Count) return;
+        SetRetainedRows([]);
         Selection.Select(rows[start].ContentStart, rows[end].ContentEnd);
+        InvalidateSelection();
+        ArmSelectionTimer();
+    }
+
+    public void SelectRowSpans(IReadOnlyList<LineSpan> spans)
+    {
+        var normalized = LineSpan.Normalize(spans);
+        if (normalized.Count == 0 || normalized.Any(span => span.Upper > rows.Count)) return;
+        SetRetainedRows(normalized.Skip(1).ToArray());
+        var first = normalized[0];
+        Selection.Select(rows[first.Lower - 1].ContentStart, rows[first.Upper - 1].ContentEnd);
+        InvalidateSelection();
+        ArmSelectionTimer();
     }
 
     public void NavigateToRow(int row)

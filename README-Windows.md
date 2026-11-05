@@ -42,6 +42,25 @@ use the clipboard and restore its previous data afterward. The runner creates
 synthetic test inputs under `artifacts/ui-navigation-tests`; it does not
 open user patch files, save preferences, or install the app.
 
+## Disconnected line selections
+
+Select the first range, then hold Ctrl and drag over another range in the same
+code column. Earlier ranges stay highlighted. Release Ctrl and the mouse;
+after 200 ms, the reference lists every range, for example
+`main.cs L20:L21, L100:L105`. Add one finding or pin for the whole selection.
+Removed lines retain their own `-L` ranges. Comparisons run separately for each
+post-patch range.
+
+A normal drag, unmodified navigation key, or Esc clears the extra ranges.
+Shift+arrow keys extend the active range. Ctrl+C copies the selected source
+lines, without gutters or unselected gaps.
+
+Newly saved session packages use version 2 to preserve multiple ranges.
+This build can read version 1 sessions, but older builds cannot read version 2.
+Use a separate session package while trying this local build if you need to
+keep using an older build. Manual anchor corrections currently require a single
+contiguous post-patch range in each column.
+
 ## Install for the current user
 
 Run PowerShell from the repository root:
