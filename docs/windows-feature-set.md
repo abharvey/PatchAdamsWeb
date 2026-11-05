@@ -66,6 +66,8 @@ tests of the current engines and implementation tests for the Windows app.
   reduced, hunks-only view.
 - Provide syntax coloring for supported languages, configurable monospace
   font and size, and keyboard shortcuts for common actions.
+- Keep a visible, high-contrast caret in read-only code so keyboard navigation
+  and Shift-based selection remain discoverable.
 - Group top-bar commands into compact File, View, Review, and Export menus,
   with search directly accessible. The request panel can be hidden and
   restored from View without clearing its text; visibility is a local preference.
@@ -83,6 +85,10 @@ tests of the current engines and implementation tests for the Windows app.
 - Selecting a line region in any column locates the corresponding region in
   every other column and shows an `exact`, `modified`, `moved`, or `absent`
   status with confidence.
+- Process selections only after the mouse buttons and selection keys are
+  released, followed by 200 ms without further selection interaction. Run
+  alignment off the UI thread, cancel superseded work, and never publish
+  results for a replaced selection, file, or editor.
 - Alignment uses line maps and positional matching, token similarity, and
   identifier matching for declarations. Confidence below 0.6 is reported as
   absent rather than presenting a low-confidence match as correct.

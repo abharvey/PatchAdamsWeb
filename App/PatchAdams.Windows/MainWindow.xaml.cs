@@ -47,6 +47,9 @@ public partial class MainWindow : Window
     private ulong blindSeed = unchecked((ulong)Random.Shared.NextInt64());
     private int reloadGeneration;
     private int patchLoadGeneration;
+    private CancellationTokenSource? comparisonCancellation;
+    private SelectionCache? selectionCache;
+    private CodeEditor? activeSelectionEditor;
 
     public MainWindow()
     {
@@ -399,6 +402,11 @@ public partial class MainWindow : Window
 
     private void RenderColumns(string? revealLabel = null, int? revealPostLine = null)
     {
+        CancelComparisons();
+        selectionCache = null;
+        activeSelectionEditor = null;
+        foreach (var existingEditor in codeEditors.Values)
+            existingEditor.CancelPendingSelection();
         CaptureColumnWidths();
         ColumnsGrid.Children.Clear();
         ColumnsGrid.ColumnDefinitions.Clear();
@@ -513,7 +521,8 @@ public partial class MainWindow : Window
             editor.SetCode(DiffEngine.SplitLines(renderedText), displayLines,
                 Path.GetExtension(selectedPath).ToLowerInvariant(), !isGoldenDiff,
                 findings.Where(finding => finding.Label == column.Label && finding.Path == selectedPath).ToArray());
-            editor.SelectionChanged += CodeSelectionChanged;
+            editor.SelectionActivity += CodeSelectionActivity;
+            editor.SelectionSettled += CodeSelectionSettled;
             editor.Loaded += (_, _) =>
             {
                 if (editor.Template.FindName("PART_ContentHost", editor) is ScrollViewer scrollViewer)
@@ -790,15 +799,59 @@ public partial class MainWindow : Window
             : file?.Status.Kind == ApplyStatusKind.Binary ? "[Binary file change]" : "[File absent in this patch]";
     }
 
-    private void CodeSelectionChanged(object sender, RoutedEventArgs e)
+    private void CancelComparisons()
     {
-        if (sender is not CodeEditor editor || editor.Tag is not EditorContext context)
+        comparisonCancellation?.Cancel();
+        comparisonCancellation = null;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        CancelComparisons();
+        foreach (var editor in codeEditors.Values)
+            editor.CancelPendingSelection();
+        base.OnClosed(e);
+    }
+
+    private void CodeSelectionActivity(object? sender, EventArgs e)
+    {
+        if (sender is not CodeEditor editor || editor.Tag is not EditorContext context ||
+            !codeEditors.TryGetValue(context.Column.Label, out var currentEditor) ||
+            !ReferenceEquals(editor, currentEditor))
             return;
+        activeSelectionEditor = editor;
+        foreach (var other in codeEditors.Values)
+            if (!ReferenceEquals(other, editor)) other.CancelPendingSelection();
+        CancelComparisons();
+        selection = null;
+        if (comparisons.Count > 0) comparisons.Clear();
+        ReferenceText.Text = "Finish selecting lines to generate a reference.";
+    }
+
+    private async void CodeSelectionSettled(object? sender, EventArgs e)
+    {
+        if (sender is not CodeEditor editor || editor.Tag is not EditorContext context ||
+            !ReferenceEquals(editor, activeSelectionEditor) ||
+            !codeEditors.TryGetValue(context.Column.Label, out var currentEditor) ||
+            !ReferenceEquals(editor, currentEditor))
+            return;
+        CancelComparisons();
         var selectedRows = editor.SelectedRows();
-        if (selectedRows is null) return;
+        if (selectedRows is null)
+        {
+            ReferenceText.Text = "Select lines in a column to generate a reference.";
+            return;
+        }
         if (context.IsGoldenDiff || context.File is null ||
             context.File.Status.Kind is ApplyStatusKind.Failed or ApplyStatusKind.Binary)
             return;
+        if (selectionCache is { } cached && ReferenceEquals(cached.Editor, editor) &&
+            cached.Rows == selectedRows.Value)
+        {
+            SetSelection(cached.Selection);
+            foreach (var entry in cached.Comparisons) comparisons.Add(entry);
+            return;
+        }
         var first = selectedRows.Value.Start + 1;
         var last = selectedRows.Value.End + 1;
         if (selectedPath.Length == 0) return;
@@ -811,14 +864,35 @@ public partial class MainWindow : Window
             var baseLines = selected.Where(line => line.BaseLine.HasValue).Select(line => line.BaseLine!.Value).ToArray();
             var start = postLines.Length > 0 ? postLines[0] : baseLines.FirstOrDefault();
             var end = postLines.Length > 0 ? postLines[^1] : baseLines.LastOrDefault();
-            selection = new Selection(context.Column, context.File, start, end, reference,
+            var settledSelection = new Selection(context.Column, context.File, start, end, reference,
                 string.Join(Environment.NewLine, selected.Select(line => line.Text)));
-            recentSelections.RemoveAll(existing => existing.Column.Label == context.Column.Label);
-            recentSelections.Add(selection);
-            if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
-            ReferenceText.Text = $"{context.Column.Label} — {reference}";
+            SetSelection(settledSelection);
+            ComparisonEntry[] entries = [];
             if (postLines.Length > 0)
-                UpdateComparisons(context.Column, context.File, postLines[0], postLines[^1]);
+            {
+                using var cancellation = new CancellationTokenSource();
+                comparisonCancellation = cancellation;
+                var token = cancellation.Token;
+                try
+                {
+                    entries = await CompareSelectionAsync(context.Column, context.File,
+                        postLines[0], postLines[^1], token);
+                    if (token.IsCancellationRequested ||
+                        !ReferenceEquals(comparisonCancellation, cancellation))
+                        return;
+                    foreach (var entry in entries) comparisons.Add(entry);
+                }
+                finally
+                {
+                    if (ReferenceEquals(comparisonCancellation, cancellation))
+                        comparisonCancellation = null;
+                }
+            }
+            selectionCache = new SelectionCache(editor, selectedRows.Value, settledSelection, entries);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer interaction or navigation owns the selection now.
         }
         catch (ArgumentException)
         {
@@ -826,25 +900,40 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateComparisons(LoadedColumn sourceColumn, AppliedFile sourceFile, int startLine, int endLine)
+    private void SetSelection(Selection value)
     {
-        comparisons.Clear();
+        selection = value;
+        recentSelections.RemoveAll(existing => existing.Column.Label == value.Column.Label);
+        recentSelections.Add(value);
+        if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
+        ReferenceText.Text = $"{value.Column.Label} — {value.Reference}";
+    }
+
+    private Task<ComparisonEntry[]> CompareSelectionAsync(
+        LoadedColumn sourceColumn, AppliedFile sourceFile, int startLine, int endLine, CancellationToken token)
+    {
+        // Snapshot all mutable UI state before leaving the dispatcher.
         var region = new Region(selectedPath, startLine, endLine);
-        foreach (var column in columns.Where(column => column.Label != sourceColumn.Label))
+        var requests = columns.Where(column => column.Label != sourceColumn.Label).Select(column =>
         {
             var target = ColumnFile(column, selectedPath);
             var manual = manualAnchors.LastOrDefault(anchor =>
                 anchor.SourceLabel == sourceColumn.Label && anchor.TargetLabel == column.Label &&
                 anchor.Path == selectedPath && anchor.SourceLines.Lower == startLine &&
                 anchor.SourceLines.Upper == endLine);
-            var result = AlignmentEngine.Locate(region, sourceFile, target, manual);
+            return (Column: column, File: target, Manual: manual, Label: BlindDisplayLabel(column.Label));
+        }).ToArray();
+        return Task.Run(() => requests.Select(request =>
+        {
+            token.ThrowIfCancellationRequested();
+            var result = AlignmentEngine.Locate(region, sourceFile, request.File, request.Manual, token);
             var nearest = result.Status == AlignmentStatus.Absent && result.NearestHunkStart.HasValue
                 ? $" · nearest hunk at base line {result.NearestHunkStart}"
                 : "";
-            comparisons.Add(new ComparisonEntry(column, target, result,
-                $"{BlindDisplayLabel(column.Label)}: {result.Status.ToString().ToLowerInvariant()} " +
-                $"({result.Confidence:P0}){nearest}"));
-        }
+            return new ComparisonEntry(request.Column, request.File, result,
+                $"{request.Label}: {result.Status.ToString().ToLowerInvariant()} " +
+                $"({result.Confidence:P0}){nearest}");
+        }).ToArray(), token);
     }
 
     private void ComparisonList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -902,8 +991,7 @@ public partial class MainWindow : Window
                     editor.ScrollToRow(sourceRow);
                     continue;
                 }
-                var targetRow = targetContext.DisplayLines.ToList()
-                    .FindIndex(line => line.BaseLine == baseLine);
+                var targetRow = editor.RowForBaseLine(baseLine.Value);
                 if (targetRow >= 0)
                     editor.ScrollToRow(targetRow);
             }
@@ -1408,6 +1496,8 @@ public partial class MainWindow : Window
             anchor.SourceLines.Lower == source.Start && anchor.SourceLines.Upper == source.End);
         manualAnchors.Add(new ManualAnchor(Guid.NewGuid(), source.Column.Label, source.File.Path,
             new LineSpan(source.Start, source.End), target.Column.Label, new LineSpan(target.Start, target.End)));
+        CancelComparisons();
+        selectionCache = null;
         StatusText.Text = $"Manual anchor saved: {source.Column.Label} → {target.Column.Label}.";
     }
 
@@ -1521,6 +1611,8 @@ public partial class MainWindow : Window
         LoadedColumn Column, AppliedFile File, int Start, int End, string Reference, string Snippet);
     private sealed record EditorContext(LoadedColumn Column, AppliedFile? File,
         IReadOnlyList<DisplayLine> DisplayLines, bool IsGoldenDiff);
+    private sealed record SelectionCache(CodeEditor Editor, (int Start, int End) Rows,
+        Selection Selection, ComparisonEntry[] Comparisons);
 }
 
 internal sealed class TextPromptDialog : Window

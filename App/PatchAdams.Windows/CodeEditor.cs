@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using PatchAdams.Core;
@@ -18,16 +19,35 @@ internal sealed class CodeEditor : RichTextBox
     private static readonly Brush Comment = Brush("#5C6370");
 
     private readonly List<Paragraph> rows = [];
+    private readonly Dictionary<Paragraph, int> rowIndexes = [];
+    private readonly Dictionary<int, int> baseRowIndexes = [];
     private readonly List<DisplayLine> displayLines = [];
     private readonly List<string> plainLines = [];
+    private readonly HashSet<Key> pressedKeys = [];
+    private readonly HashSet<MouseButton> pressedButtons = [];
+    private readonly DispatcherTimer selectionTimer;
+    private bool selectionPending;
+    private bool waitingForRelease;
+    private bool lostKeyboardFocus;
     private double rowHeight;
+
+    public event EventHandler? SelectionActivity;
+    public event EventHandler? SelectionSettled;
 
     public IReadOnlyList<DisplayLine> DisplayLines => displayLines;
     public IReadOnlyList<string> PlainLines => plainLines;
 
     public CodeEditor()
     {
+        selectionTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(200)
+        };
+        selectionTimer.Tick += SelectionTimer_Tick;
+        Unloaded += (_, _) => CancelPendingSelection();
         IsReadOnly = true;
+        IsReadOnlyCaretVisible = true;
+        CaretBrush = Brush("#E5C07B");
         IsDocumentEnabled = true;
         AcceptsTab = true;
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -46,6 +66,111 @@ internal sealed class CodeEditor : RichTextBox
         rowHeight = FontSize * 1.15;
     }
 
+    protected override void OnSelectionChanged(RoutedEventArgs e)
+    {
+        base.OnSelectionChanged(e);
+        // RichTextBox can raise this while its base constructor is still running.
+        if (selectionTimer is null) return;
+        InvalidateSelection();
+        ArmSelectionTimer();
+    }
+
+    protected override void OnPreviewMouseDown(MouseButtonEventArgs e)
+    {
+        pressedButtons.Add(e.ChangedButton);
+        InvalidateSelection();
+        base.OnPreviewMouseDown(e);
+    }
+
+    protected override void OnPreviewMouseUp(MouseButtonEventArgs e)
+    {
+        pressedButtons.Remove(e.ChangedButton);
+        waitingForRelease = false;
+        base.OnPreviewMouseUp(e);
+        ArmSelectionTimer();
+    }
+
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        pressedButtons.Clear();
+        base.OnLostMouseCapture(e);
+        ArmSelectionTimer();
+    }
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        lostKeyboardFocus = false;
+        pressedKeys.Add(e.Key == Key.System ? e.SystemKey : e.Key);
+        InvalidateSelection();
+        base.OnPreviewKeyDown(e);
+    }
+
+    protected override void OnPreviewKeyUp(KeyEventArgs e)
+    {
+        pressedKeys.Remove(e.Key == Key.System ? e.SystemKey : e.Key);
+        waitingForRelease = false;
+        base.OnPreviewKeyUp(e);
+        ArmSelectionTimer();
+    }
+
+    protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnLostKeyboardFocus(e);
+        // Key-up can go to another control after focus changes.
+        lostKeyboardFocus = true;
+        ArmSelectionTimer();
+    }
+
+    private void InvalidateSelection()
+    {
+        selectionTimer.Stop();
+        selectionPending = true;
+        SelectionActivity?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ArmSelectionTimer()
+    {
+        selectionTimer.Stop();
+        if (selectionPending)
+            selectionTimer.Start();
+    }
+
+    private void SelectionTimer_Tick(object? sender, EventArgs e)
+    {
+        // Do not treat a pause during a drag or held Shift/arrow key as completion.
+        // Polling also covers releasing capture or focus before the final input-up.
+        if (lostKeyboardFocus)
+            pressedKeys.RemoveWhere(key => !Keyboard.IsKeyDown(key));
+        if (pressedKeys.Count > 0 || pressedButtons.Count > 0 || Keyboard.Modifiers != ModifierKeys.None ||
+            Mouse.LeftButton == MouseButtonState.Pressed || Mouse.RightButton == MouseButtonState.Pressed ||
+            Mouse.MiddleButton == MouseButtonState.Pressed)
+        {
+            waitingForRelease = true;
+            ArmSelectionTimer();
+            return;
+        }
+        if (waitingForRelease)
+        {
+            waitingForRelease = false;
+            ArmSelectionTimer();
+            return;
+        }
+        selectionTimer.Stop();
+        if (!selectionPending) return;
+        selectionPending = false;
+        SelectionSettled?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void CancelPendingSelection()
+    {
+        selectionTimer.Stop();
+        selectionPending = false;
+        pressedKeys.Clear();
+        pressedButtons.Clear();
+        waitingForRelease = false;
+        lostKeyboardFocus = false;
+    }
+
     public void SetCode(
         IReadOnlyList<string> lines,
         IReadOnlyList<DisplayLine> mappedLines,
@@ -53,8 +178,11 @@ internal sealed class CodeEditor : RichTextBox
         bool hasLineGutters,
         IReadOnlyList<SessionFinding>? findings = null)
     {
+        CancelPendingSelection();
         Document.Blocks.Clear();
         rows.Clear();
+        rowIndexes.Clear();
+        baseRowIndexes.Clear();
         displayLines.Clear();
         displayLines.AddRange(mappedLines);
         var displayRows = lines.Select(line => line.TrimEnd('\r')).ToArray();
@@ -96,8 +224,12 @@ internal sealed class CodeEditor : RichTextBox
             }
             AddHighlightedLine(paragraph, line, extension, hasLineGutters);
             Document.Blocks.Add(paragraph);
+            rowIndexes.Add(paragraph, index);
+            if (index < mappedLines.Count && mappedLines[index].BaseLine is int baseLine)
+                baseRowIndexes.TryAdd(baseLine, index);
             rows.Add(paragraph);
         }
+        CancelPendingSelection();
     }
 
     private static SolidColorBrush FindingBrush(FindingSeverity severity) => severity switch
@@ -112,12 +244,15 @@ internal sealed class CodeEditor : RichTextBox
     public (int Start, int End)? SelectedRows()
     {
         if (Selection.IsEmpty) return null;
-        var blocks = Document.Blocks.Cast<Block>().ToList();
-        var start = blocks.IndexOf(Selection.Start.Paragraph);
-        var end = blocks.IndexOf(Selection.End.Paragraph);
-        if (start < 0 || end < 0) return null;
+        if (Selection.Start.Paragraph is not { } startParagraph ||
+            Selection.End.Paragraph is not { } endParagraph ||
+            !rowIndexes.TryGetValue(startParagraph, out var start) ||
+            !rowIndexes.TryGetValue(endParagraph, out var end))
+            return null;
         return (start, Math.Max(start, end));
     }
+
+    public int RowForBaseLine(int baseLine) => baseRowIndexes.GetValueOrDefault(baseLine, -1);
 
     public int FirstVisibleRow()
     {

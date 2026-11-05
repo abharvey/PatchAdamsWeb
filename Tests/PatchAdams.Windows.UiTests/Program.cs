@@ -33,7 +33,8 @@ internal static class Program
             RunNavigationTests(window);
             RunScrollbarTests(window);
             RunCopyCodeTests(window);
-            Console.WriteLine("PASS WPF navigation, compact scrollbars, copy-code buttons, and shared file caption.");
+            RunSelectionTests(window);
+            Console.WriteLine("PASS WPF navigation, scrollbars, copy code, captions, and deferred selection processing.");
             return 0;
         }
         catch (Exception error)
@@ -232,6 +233,181 @@ internal static class Program
         thumb.RaiseEvent(new DragDeltaEventArgs(horizontal, vertical) { RoutedEvent = Thumb.DragDeltaEvent });
         thumb.RaiseEvent(new DragCompletedEventArgs(horizontal, vertical, false) { RoutedEvent = Thumb.DragCompletedEvent });
         Pump();
+    }
+
+    private static void RunSelectionTests(MainWindow window)
+    {
+        Invoke(window, "SelectGolden", new object[] { null! });
+        ((MenuItem)window.FindName("BlindModeToggle")).IsChecked = false;
+        Invoke(window, "NavigateToPostLine", "A", "src/target.ts", 40);
+        Pump();
+        var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+        Check(editor.IsReadOnly && editor.IsReadOnlyCaretVisible &&
+              ((SolidColorBrush)editor.CaretBrush).Color == Color.FromRgb(229, 192, 123),
+            "read-only code exposes a high-contrast keyboard caret");
+        Check(((DispatcherTimer)GetField(editor, "selectionTimer")!).Interval == TimeSpan.FromMilliseconds(200),
+            "selection quiet period is configured to 200 ms");
+        var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        var settled = 0;
+        EventHandler onSettled = (_, _) => settled++;
+        editor.GetType().GetEvent("SelectionSettled")!.AddEventHandler(editor, onSettled);
+
+        MouseInput(editor, Mouse.PreviewMouseDownEvent);
+        editor.Selection.Select(paragraphs[20].ContentStart, paragraphs[30].ContentEnd);
+        PumpFor(300);
+        Check(settled == 0 && GetField(window, "selection") is null &&
+              GetField(window, "comparisonCancellation") is null,
+            "a paused mouse drag does not start selection processing");
+        MouseInput(editor, Mouse.PreviewMouseUpEvent);
+        PumpFor(130);
+        Check(settled == 0, "mouse release still waits the full 200 ms");
+        WaitUntil(() => settled == 1 && Comparisons(window).Count > 0, "mouse selection finishes after release");
+        Check(GetField(window, "selection") is not null, "settled mouse selection generates a finding reference");
+
+        // Changing character endpoints within the same rows reuses completed line comparisons.
+        var cached = GetField(window, "selectionCache");
+        editor.Selection.Select(paragraphs[20].ContentStart.GetNextInsertionPosition(LogicalDirection.Forward)!,
+            paragraphs[30].ContentEnd);
+        WaitUntil(() => settled == 2 && Comparisons(window).Count > 0, "same-row selection settles");
+        Check(ReferenceEquals(cached, GetField(window, "selectionCache")), "same-row changes reuse cached comparisons");
+
+        KeyInput(editor, Key.LeftShift, Keyboard.PreviewKeyDownEvent);
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyDownEvent);
+        // Exercise WPF's real keyboard selection command, not a replacement selection model.
+        EditingCommands.SelectDownByLine.Execute(null, editor);
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyDownEvent);
+        PumpFor(300);
+        Check(settled == 2 && GetField(window, "comparisonCancellation") is null,
+            "held and repeated selection keys do not start comparisons");
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyUpEvent);
+        PumpFor(250);
+        Check(settled == 2, "releasing the arrow still waits for Shift release");
+        KeyInput(editor, Key.LeftShift, Keyboard.PreviewKeyUpEvent);
+        PumpFor(130);
+        Check(settled == 2, "keyboard release still waits the full 200 ms");
+        WaitUntil(() => settled == 3 && Comparisons(window).Count > 0, "keyboard selection finishes after all keys release");
+
+        editor.Selection.Select(paragraphs[2].ContentStart, paragraphs[3].ContentEnd);
+        PumpFor(130);
+        editor.Selection.Select(paragraphs[4].ContentStart, paragraphs[5].ContentEnd);
+        PumpFor(130);
+        Check(settled == 3, "another selection change restarts the 200 ms quiet period");
+        WaitUntil(() => settled == 4 && Comparisons(window).Count > 0, "only the final selection is processed");
+
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyDownEvent);
+        // The user can release a held key after moving focus to another control.
+        ((TextBox)window.FindName("SearchBox")).Focus();
+        PumpFor(650);
+        Check(settled == 5, "lost keyboard focus cannot strand a pending selection");
+        editor.Focus();
+
+        editor.Selection.Select(paragraphs[1].ContentStart, paragraphs[1].ContentStart);
+        Check(GetField(window, "selection") is null && Comparisons(window).Count == 0,
+            "clearing selection immediately invalidates its reference and comparisons");
+        PumpFor(250);
+        Check(GetField(window, "selection") is null, "an empty selection cannot restore an old finding reference");
+
+        editor.Selection.Select(paragraphs[10].ContentStart, paragraphs[12].ContentEnd);
+        Invoke(window, "NavigateToPostLine", "B", "src/other.ts", 130);
+        PumpFor(400);
+        var reference = (TextBlock)window.FindName("ReferenceText");
+        Check(reference.Text.Contains("B — other.ts L130:L130", StringComparison.Ordinal),
+            "navigation discards a replaced editor's pending selection");
+        editor.Selection.Select(paragraphs[15].ContentStart, paragraphs[17].ContentEnd);
+        PumpFor(250);
+        Check(reference.Text.Contains("B — other.ts L130:L130", StringComparison.Ordinal),
+            "late events from a detached editor cannot invalidate the current selection");
+
+        RunBackgroundSelectionTest(window);
+        editor.GetType().GetEvent("SelectionSettled")!.RemoveEventHandler(editor, onSettled);
+    }
+
+    private static void RunBackgroundSelectionTest(MainWindow window)
+    {
+        var columns = ((IList)GetField(window, "columns")!).Cast<object>().ToArray();
+        var originals = columns.Select(column => column.GetType().GetProperty("Applied")!.GetValue(column)).ToArray();
+        try
+        {
+            // Similar, unmapped regions force expensive fallback work without running reviewed code.
+            for (var index = 0; index < columns.Length; index++)
+            {
+                var text = string.Join('\n', Enumerable.Range(1, 800).Select(line =>
+                    $"value{line} = input{line + index} + shared + shared + shared + shared;"));
+                var file = AppliedFile.Unchanged("src/target.ts", text) with
+                {
+                    BaseText = "",
+                    LineMap = new LineMap(new int?[800], [])
+                };
+                columns[index].GetType().GetProperty("Applied")!.SetValue(columns[index], new AppliedPatch([file]));
+            }
+            SetField(window, "selectedPath", "src/target.ts");
+            Invoke(window, "RenderColumns", null!, null!);
+            Pump();
+            var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+            var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+            editor.Selection.Select(paragraphs[100].ContentStart, paragraphs[499].ContentEnd);
+            editor.GetType().GetMethod("CancelPendingSelection")!.Invoke(editor, null);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            // Bypass only the already-tested delay to observe the worker before its first continuation.
+            Invoke(window, "CodeSelectionSettled", editor, EventArgs.Empty);
+            Check(clock.ElapsedMilliseconds < 150, "starting a large comparison does not block the dispatcher");
+            var cancellation = (CancellationTokenSource)GetField(window, "comparisonCancellation")!;
+            var token = cancellation.Token;
+            var heartbeats = 0;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+            timer.Tick += (_, _) => heartbeats++;
+            timer.Start();
+            PumpFor(80);
+            timer.Stop();
+            Check(heartbeats >= 2, "dispatcher keeps processing events during background alignment");
+            editor.Selection.Select(paragraphs[10].ContentStart, paragraphs[10].ContentEnd);
+            Check(token.IsCancellationRequested, "new selection cancels an in-flight comparison");
+            WaitUntil(() => Comparisons(window).Count > 0 && GetField(window, "comparisonCancellation") is null,
+                "latest selection publishes comparisons");
+            Check(((TextBlock)window.FindName("ReferenceText")).Text == "A — target.ts L11:L11",
+                "cancelled work cannot overwrite the latest reference");
+            var cache = GetField(window, "selectionCache")!;
+            Check((ValueTuple<int, int>)cache.GetType().GetProperty("Rows")!.GetValue(cache)! == (10, 10),
+                "only the latest row range enters the comparison cache");
+        }
+        finally
+        {
+            for (var index = 0; index < columns.Length; index++)
+                columns[index].GetType().GetProperty("Applied")!.SetValue(columns[index], originals[index]);
+            Invoke(window, "RenderColumns", null!, null!);
+            Pump();
+        }
+    }
+
+    private static IList Comparisons(MainWindow window) => (IList)GetField(window, "comparisons")!;
+
+    private static void MouseInput(RichTextBox editor, RoutedEvent routedEvent) =>
+        editor.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        {
+            RoutedEvent = routedEvent
+        });
+
+    private static void KeyInput(RichTextBox editor, Key key, RoutedEvent routedEvent) =>
+        editor.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(editor),
+            Environment.TickCount, key) { RoutedEvent = routedEvent });
+
+    private static void WaitUntil(Func<bool> condition, string message)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline) PumpFor(10);
+        Check(condition(), message);
+    }
+
+    private static void PumpFor(int milliseconds)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Send)
+        {
+            Interval = TimeSpan.FromMilliseconds(milliseconds)
+        };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
     }
 
     private static IEnumerable<string> BaseLines(string path, int count)
