@@ -44,6 +44,8 @@ var tests = new (string Name, Action Run)[]
     ("compact views reveal every saved range", DisconnectedSelectionTests.CompactViewsRevealAllRanges),
     ("session packages round-trip patches and review state", SessionTests.PackageRoundTripsState),
     ("older sessions reopen with default patch layout", SessionTests.OlderSessionsKeepDefaultLayout),
+    ("reviewer feedback round-trips large Slack text with fixture patches", ReviewerFeedbackTests.FeedbackRoundTripsWithFixture),
+    ("older sessions open with empty reviewer feedback", ReviewerFeedbackTests.OlderSessionsHaveEmptyFeedback),
     ("session package rejects patch paths outside its folder", SessionTests.PackageRejectsEscapingPatchPaths),
     ("blind export reveals its mapping only at the end", SessionTests.BlindExportRevealsMappingLast),
     ("references are generated from post-patch selections", SessionTests.ReferenceIsGeneratedFromSelection),

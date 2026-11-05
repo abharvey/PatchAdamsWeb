@@ -148,6 +148,10 @@
                                 <ListBox x:Name="FindingsList" Margin="0,4,0,8" Height="260"
                                          SelectionChanged="FindingsList_SelectionChanged"/>
                                 <Button Content="Add finding from selection…" Click="AddFinding_Click"/>
+                                <Button x:Name="RemoveFindingButton" Content="Remove selected finding…"
+                                        IsEnabled="False" Click="RemoveFinding_Click"/>
+                                <Button Content="Reviewer feedback…" Click="ReviewerFeedback_Click"
+                                        ToolTip="Paste reviewer feedback and keep it with this session"/>
                                 <Button Content="Pin selection" Click="PinSelection_Click"/>
                                 <Button Content="Correct anchor from last two selections" Click="CorrectAnchor_Click"/>
                                 <Button Content="Show raw patch…" Click="ShowRawPatch_Click"/>

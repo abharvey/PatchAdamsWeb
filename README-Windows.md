@@ -61,6 +61,21 @@ Use a separate session package while trying this local build if you need to
 keep using an older build. Manual anchor corrections currently require a single
 contiguous post-patch range in each column.
 
+## Correcting findings after reviewer feedback
+
+In the Review panel, open **Reviewer feedback…** to paste a Slack message or
+other large text block. The editor is resizable and preserves multiline text.
+Choose **Keep feedback**, then save the session with Ctrl+S to persist it.
+Feedback is included in session packages and JSON exports, not Markdown reports.
+Cancel leaves the previous feedback unchanged.
+
+Select a mistaken finding in the Findings list, then choose **Remove selected
+finding…**. Check its title, patch, reference, and description before confirming.
+Removal cannot be undone in the current review; it clears the highlight and
+excludes the finding from future saves and exports, including not-flagged passes.
+Other findings, pins, and pasted feedback stay intact. Save the session to keep
+the correction. Feedback does not remove findings automatically.
+
 ## Install for the current user
 
 Run PowerShell from the repository root:

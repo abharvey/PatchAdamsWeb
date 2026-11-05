@@ -35,7 +35,9 @@ internal static class Program
             RunCopyCodeTests(window);
             RunSelectionTests(window);
             RunDisconnectedSelectionTests(window);
-            Console.WriteLine("PASS WPF navigation, scrollbars, copy code, deferred processing, and disconnected selections.");
+            RunReviewerFeedbackTests(window);
+            RunRemoveFindingTests(window);
+            Console.WriteLine("PASS WPF navigation, scrollbars, copy code, deferred processing, disconnected selections, reviewer feedback, and finding removal.");
             return 0;
         }
         catch (Exception error)
@@ -489,6 +491,170 @@ internal static class Program
         ((ListBox)window.FindName("PinsList")).SelectedItem = pin;
         Pump();
         WaitUntil(() => reference.Text == "A — " + expectedReference, "opening a pin restores every range");
+    }
+
+    private static void RunReviewerFeedbackTests(MainWindow window)
+    {
+        var feedback = "Slack reviewer — correction\r\n\r\n" +
+            string.Concat(Enumerable.Repeat("The finding is mistaken; the caller handles this.\r\n", 1_000));
+        EditFeedback(dialog =>
+        {
+            var box = (TextBox)dialog.FindName("FeedbackBox");
+            Check(box.AcceptsReturn && box.AcceptsTab && dialog.ResizeMode == ResizeMode.CanResize,
+                "feedback supports large multiline input in a resizable editor");
+            box.Text = feedback;
+            Click(dialog, "Keep feedback");
+        });
+        Check(((ReviewSession)Invoke(window, "BuildSession")!).ReviewerFeedback == feedback,
+            "kept feedback enters session state without trimming");
+        EditFeedback(dialog =>
+        {
+            Check(dialog.Feedback == feedback, "feedback reopens with the kept text");
+            ((TextBox)dialog.FindName("FeedbackBox")).Text = "discarded edit";
+            dialog.Close();
+        });
+        Check(((ReviewSession)Invoke(window, "BuildSession")!).ReviewerFeedback == feedback,
+            "closing feedback discards edits");
+        EditFeedback(dialog =>
+        {
+            ((TextBox)dialog.FindName("FeedbackBox")).Text = "";
+            Click(dialog, "Keep feedback");
+        });
+        Check(((ReviewSession)Invoke(window, "BuildSession")!).ReviewerFeedback == "",
+            "feedback can be explicitly cleared");
+        EditFeedback(dialog =>
+        {
+            ((TextBox)dialog.FindName("FeedbackBox")).Text = feedback;
+            Click(dialog, "Keep feedback");
+        });
+
+        void EditFeedback(Action<ReviewerFeedbackDialog> edit) =>
+            WithModal<ReviewerFeedbackDialog>(
+                () => Invoke(window, "ReviewerFeedback_Click", window, new RoutedEventArgs()), edit);
+    }
+
+    private static void RunRemoveFindingTests(MainWindow window)
+    {
+        var findings = (IList)GetField(window, "findings")!;
+        var labels = (IList)GetField(window, "findingLabels")!;
+        var list = (ListBox)window.FindName("FindingsList");
+        var button = (Button)window.FindName("RemoveFindingButton");
+        var target = (SessionFinding)findings[0]!;
+        var retained = target with
+        {
+            Id = Guid.NewGuid(), Lines = new LineSpan(105, 105), Reference = "target.ts L105:L105",
+            Ranges = [new LineRange(new LineSpan(105, 105))], Severity = FindingSeverity.Blocking,
+            Description = "A separate issue with the same title"
+        };
+        var pass = target with { Id = Guid.NewGuid(), Label = "B", NotFlagged = true };
+        foreach (var finding in new[] { retained, pass })
+        {
+            findings.Add(finding);
+            labels.Add($"{finding.Label} · {finding.Severity} · {finding.Title} — {finding.Reference}");
+        }
+        var pins = ((IList)GetField(window, "pins")!).Cast<SessionPin>().ToArray();
+        var feedback = ((ReviewSession)Invoke(window, "BuildSession")!).ReviewerFeedback;
+        list.SelectedIndex = -1;
+        Check(!button.IsEnabled, "remove is disabled with no selected finding");
+        Invoke(window, "RemoveFinding_Click", window, new RoutedEventArgs());
+        Check(findings.Count == 3, "remove without selection is harmless");
+        list.SelectedIndex = 0;
+        Pump();
+        Check(button.IsEnabled, "selecting a finding enables removal");
+
+        WithModal<RemoveFindingDialog>(() => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)), dialog =>
+        {
+            Check(((TextBlock)dialog.FindName("FindingTitle")).Text == target.Title &&
+                  ((TextBlock)dialog.FindName("FindingReference")).Text.Contains(target.Reference, StringComparison.Ordinal) &&
+                  ((TextBlock)dialog.FindName("FindingDescription")).Text == target.Description,
+                "confirmation identifies the selected finding");
+            Check(Descendants<Button>(dialog).Single(item => (string?)item.Content == "Cancel").IsDefault,
+                "confirmation defaults to cancel, not deletion");
+            dialog.Close();
+        });
+        Check(findings.Count == 3 && list.SelectedIndex == 0, "cancel preserves findings and selection");
+        RemoveSelected();
+        Check(findings.Count == 2 && ((SessionFinding)findings[0]!).Id == retained.Id &&
+              labels.Count == 2 && list.SelectedIndex == -1 && !button.IsEnabled,
+            "removal deletes only the selected identity and clears the selected list item");
+        var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+        var display = EditorLines(editor);
+        var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        var removedRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 20);
+        var overlappingRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 105);
+        Check(paragraphs[removedRow].Background is null &&
+              (paragraphs[overlappingRow].Background as SolidColorBrush)?.Color == Color.FromRgb(90, 48, 56),
+            "removed highlight clears while an overlapping finding retains its severity highlight");
+        var session = (ReviewSession)Invoke(window, "BuildSession")!;
+        Check(session.ReviewerFeedback == feedback && session.Pins.SequenceEqual(pins),
+            "finding removal keeps feedback and pins intact");
+
+        var columns = ((IList)GetField(window, "columns")!).Cast<object>().ToArray();
+        var patches = columns.ToDictionary(column => (string)column.GetType().GetProperty("Label")!.GetValue(column)!,
+            column => (string)column.GetType().GetProperty("PatchText")!.GetValue(column)!);
+        var package = Path.Combine(Path.GetDirectoryName((string)GetField(window, "basePath")!)!, "corrected.patchadam");
+        SessionPackage.Write(new SessionContents(session, patches), package);
+        var reopened = SessionPackage.Read(package).Session;
+        Check(reopened.Findings.Select(finding => finding.Id).SequenceEqual(new[] { retained.Id, pass.Id }) &&
+              reopened.ReviewerFeedback == feedback, "save/reopen keeps the correction and independent feedback");
+        Check(!System.Text.Encoding.UTF8.GetString(MarkdownExport.RenderJson(reopened))
+                .Contains(target.Id.ToString(), StringComparison.Ordinal), "JSON excludes the removed finding");
+
+        list.SelectedIndex = 0;
+        Pump();
+        RemoveSelected();
+        list.SelectedIndex = 0;
+        Pump();
+        RemoveSelected();
+        session = (ReviewSession)Invoke(window, "BuildSession")!;
+        Check(session.Findings.Count == 0 && labels.Count == 0 && !button.IsEnabled,
+            "last finding and not-flagged passes can also be removed");
+        var markdown = MarkdownExport.Render(session);
+        Check(markdown.Contains("0 findings", StringComparison.Ordinal) &&
+              !markdown.Contains(target.Title, StringComparison.Ordinal) &&
+              !markdown.Contains("## Not flagged", StringComparison.Ordinal),
+            "Markdown excludes removed findings rather than converting them into passes");
+
+        // A new patch review must not inherit the previous session's feedback.
+        var directory = Path.GetDirectoryName((string)GetField(window, "basePath")!)!;
+        var load = (Task)Invoke(window, "LoadPatchFilesAsync",
+            new object[] { new[] { Path.Combine(directory, "a.patch"), Path.Combine(directory, "b.patch") } })!;
+        WaitUntil(() => load.IsCompleted, "new patch review loads");
+        load.GetAwaiter().GetResult();
+        Check(((ReviewSession)Invoke(window, "BuildSession")!).ReviewerFeedback == "",
+            "new patch review clears reviewer feedback");
+
+        void RemoveSelected()
+        {
+            WithModal<RemoveFindingDialog>(() => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)),
+                dialog => Click(dialog, "Remove finding"));
+            Pump();
+        }
+    }
+
+    private static void Click(Window dialog, string content) =>
+        Descendants<Button>(dialog).Single(button => (string?)button.Content == content)
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+    private static void WithModal<T>(Action open, Action<T> interact) where T : Window
+    {
+        Exception? failure = null;
+        var visited = false;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        timer.Tick += (_, _) =>
+        {
+            var dialog = Application.Current.Windows.OfType<T>().FirstOrDefault();
+            if (dialog is null) return;
+            timer.Stop();
+            visited = true;
+            try { interact(dialog); }
+            catch (Exception error) { failure = error; dialog.Close(); }
+        };
+        timer.Start();
+        try { open(); }
+        finally { timer.Stop(); }
+        if (failure is not null) throw failure;
+        Check(visited, $"{typeof(T).Name} was opened");
     }
 
     private static bool SelectionReady(MainWindow window, string reference)

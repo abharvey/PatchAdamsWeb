@@ -135,7 +135,8 @@ public sealed record ReviewSession(
     IReadOnlyList<ManualAnchor> ManualAnchors,
     BlindMode Blind,
     DateTimeOffset Created,
-    DateTimeOffset? Saved = null)
+    DateTimeOffset? Saved = null,
+    string ReviewerFeedback = "")
 {
     public const int CurrentVersion = 2;
 
