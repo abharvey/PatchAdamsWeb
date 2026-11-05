@@ -1,0 +1,24 @@
+<Window x:Class="PatchAdamsSharp.RemoveFindingDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Remove finding" Width="520" Height="360" MinWidth="360" MinHeight="280"
+        WindowStartupLocation="CenterOwner" Background="#2F343E" Foreground="#DCE0E5">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <TextBlock Text="This removes the finding from the review and future saves and exports. Reviewer feedback is kept. This cannot be undone."
+                       TextWrapping="Wrap" Margin="0,0,0,12"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancel" IsCancel="True" IsDefault="True"/>
+                <Button Content="Remove finding" Click="Remove_Click"/>
+            </StackPanel>
+        </StackPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Remove this finding?" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                <TextBlock x:Name="FindingTitle" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                <TextBlock x:Name="FindingReference" TextWrapping="Wrap" Margin="0,6,0,10"/>
+                <TextBlock x:Name="FindingDescription" TextWrapping="Wrap"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

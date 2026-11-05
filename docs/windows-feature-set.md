@@ -126,6 +126,13 @@ tests of the current engines and implementation tests for the Windows app.
 - Store title, category, severity, description, request relevance, optional
   note, and a not-flagged review disposition. Findings remain anchored to
   their patch and line range.
+- Remove a selected finding after confirmation showing its title, patch label,
+  reference, and description. Removal clears its highlight and excludes it from
+  future saves and exports; it does not turn it into a not-flagged pass.
+- Paste large, multiline reviewer feedback into a resizable session-level editor.
+  Keep feedback independently of removed findings, with explicit keep/cancel
+  actions. Feedback is plain text, never parsed as commands or used to remove
+  findings automatically. Include it in session saves and JSON, not Markdown.
 - Provide the built-in review categories and allow categories to be edited
   per session. Severity options are trivial, minor, material, and blocking.
 - Rank patches with ties and save a rationale.
@@ -142,7 +149,9 @@ tests of the current engines and implementation tests for the Windows app.
 - Save and reopen a `.patchadam` session package containing session data and
   copies of loaded patches, plus a pointer to the base.
 - Restore request, patches, column order and visibility, golden selection,
-  findings, pins, ranking, manual anchors, and blind-mode seed/state.
+  findings, reviewer feedback, pins, ranking, manual anchors, and blind-mode seed/state.
+- Older session packages without reviewer feedback open with an empty feedback
+  editor. Starting a new patch review clears previous feedback.
 - If the original base is unavailable or has moved, rebuild a synthetic base
   from the saved patches and clearly report the fallback.
 - Reopening the same session restores the same column ordering, mappings,

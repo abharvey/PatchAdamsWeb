@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? comparisonCancellation;
     private SelectionCache? selectionCache;
     private CodeEditor? activeSelectionEditor;
+    private string reviewerFeedback = "";
 
     public MainWindow()
     {
@@ -165,6 +166,7 @@ public partial class MainWindow : Window
             pins.Clear();
             findingLabels.Clear();
             loadedSession = null;
+            reviewerFeedback = "";
             columns.AddRange(loaded);
             golden = null;
             await ReloadPatchesAsync();
@@ -1459,6 +1461,32 @@ public partial class MainWindow : Window
         StatusText.Text = "Finding recorded for this window.";
     }
 
+    private void RemoveFinding_Click(object sender, RoutedEventArgs e)
+    {
+        var index = FindingsList.SelectedIndex;
+        if (index < 0 || index >= findings.Count) return;
+        var finding = findings[index];
+        var dialog = new RemoveFindingDialog(finding, BlindDisplayLabel(finding.Label)) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        // Resolve by identity after the modal dialog, never by a potentially stale list index.
+        index = findings.FindIndex(item => item.Id == finding.Id);
+        if (index < 0) return;
+        FindingsList.SelectedIndex = -1;
+        findings.RemoveAt(index);
+        findingLabels.RemoveAt(index);
+        RenderColumns();
+        StatusText.Text = "Finding removed. Reviewer feedback kept. Save the session to keep this change.";
+    }
+
+    private void ReviewerFeedback_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ReviewerFeedbackDialog(reviewerFeedback) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        reviewerFeedback = dialog.Feedback;
+        StatusText.Text = "Reviewer feedback updated. Save the session to keep it.";
+    }
+
     private void PinSelection_Click(object sender, RoutedEventArgs e)
     {
         if (selection is null) return;
@@ -1470,6 +1498,7 @@ public partial class MainWindow : Window
     private void FindingsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var index = FindingsList.SelectedIndex;
+        RemoveFindingButton.IsEnabled = index >= 0 && index < findings.Count;
         if (index < 0 || index >= findings.Count) return;
         var finding = findings[index];
         NavigateToSelection(finding.Label, finding.Path, finding.SelectedRanges);
@@ -1570,6 +1599,7 @@ public partial class MainWindow : Window
             BlindModeToggle.IsChecked = contents.Session.Blind.IsOn;
             RequestBox.Text = contents.Session.Request;
             RationaleBox.Text = contents.Session.Ranking.Rationale;
+            reviewerFeedback = contents.Session.ReviewerFeedback;
             categories.Clear();
             categories.AddRange(contents.Session.Categories);
             columns.AddRange(restoredColumns);
@@ -1609,7 +1639,8 @@ public partial class MainWindow : Window
                 .ToDictionary(pair => pair.Key, pair => pair.Value!.Value, StringComparer.Ordinal),
                 RationaleBox.Text),
             pins.ToArray(), manualAnchors.ToArray(),
-            new BlindMode(BlindModeToggle.IsChecked == true, blindSeed), old?.Created ?? DateTimeOffset.UtcNow);
+            new BlindMode(BlindModeToggle.IsChecked == true, blindSeed), old?.Created ?? DateTimeOffset.UtcNow,
+            ReviewerFeedback: reviewerFeedback);
     }
 
     private sealed class LoadedColumn(string label, string sourceName, string patchText, Patch patch)
