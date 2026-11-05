@@ -47,6 +47,9 @@ public partial class MainWindow : Window
     private ulong blindSeed = unchecked((ulong)Random.Shared.NextInt64());
     private int reloadGeneration;
     private int patchLoadGeneration;
+    private CancellationTokenSource? comparisonCancellation;
+    private SelectionCache? selectionCache;
+    private CodeEditor? activeSelectionEditor;
 
     public MainWindow()
     {
@@ -399,6 +402,16 @@ public partial class MainWindow : Window
 
     private void RenderColumns(string? revealLabel = null, int? revealPostLine = null)
     {
+        RenderColumnsCore(revealLabel, revealPostLine, null);
+    }
+
+    private void RenderColumnsCore(string? revealLabel, int? revealPostLine, IReadOnlyList<LineRange>? revealRanges)
+    {
+        CancelComparisons();
+        selectionCache = null;
+        activeSelectionEditor = null;
+        foreach (var existingEditor in codeEditors.Values)
+            existingEditor.CancelPendingSelection();
         CaptureColumnWidths();
         ColumnsGrid.Children.Clear();
         ColumnsGrid.ColumnDefinitions.Clear();
@@ -480,6 +493,7 @@ public partial class MainWindow : Window
             var isLargeFile = appliedFile is not null &&
                 Math.Max(appliedFile.LineMap.PostLineCount, appliedFile.LineMap.BaseLineCount) > 50_000;
             var targetLine = column.Label == revealLabel ? revealPostLine : null;
+            var targetRanges = column.Label == revealLabel ? revealRanges : null;
             IReadOnlyList<DisplayLine> displayLines = canRenderFile
                 ? isGoldenDiff
                     ? DisplayLines.CreateGoldenComparison(appliedFile!,
@@ -487,9 +501,10 @@ public partial class MainWindow : Window
                         isLargeFile, targetLine)
                     : isLargeFile
                         ? DisplayLines.CreateHunksOnly(appliedFile!, contextRows: targetLine.HasValue ? 40 : 3,
-                            includeRemoved: ShowRemovedToggle.IsChecked == true, revealPostLine: targetLine)
+                            includeRemoved: ShowRemovedToggle.IsChecked == true, revealPostLine: targetLine,
+                            revealRanges: targetRanges)
                         : DisplayLines.Create(appliedFile!, includeRemoved: ShowRemovedToggle.IsChecked == true,
-                            revealPostLine: targetLine)
+                            revealPostLine: targetLine, revealRanges: targetRanges)
                 : [];
             var renderedText = !canRenderFile
                 ? RenderColumnPlaceholder(column)
@@ -513,7 +528,8 @@ public partial class MainWindow : Window
             editor.SetCode(DiffEngine.SplitLines(renderedText), displayLines,
                 Path.GetExtension(selectedPath).ToLowerInvariant(), !isGoldenDiff,
                 findings.Where(finding => finding.Label == column.Label && finding.Path == selectedPath).ToArray());
-            editor.SelectionChanged += CodeSelectionChanged;
+            editor.SelectionActivity += CodeSelectionActivity;
+            editor.SelectionSettled += CodeSelectionSettled;
             editor.Loaded += (_, _) =>
             {
                 if (editor.Template.FindName("PART_ContentHost", editor) is ScrollViewer scrollViewer)
@@ -790,35 +806,97 @@ public partial class MainWindow : Window
             : file?.Status.Kind == ApplyStatusKind.Binary ? "[Binary file change]" : "[File absent in this patch]";
     }
 
-    private void CodeSelectionChanged(object sender, RoutedEventArgs e)
+    private void CancelComparisons()
     {
-        if (sender is not CodeEditor editor || editor.Tag is not EditorContext context)
+        comparisonCancellation?.Cancel();
+        comparisonCancellation = null;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        CancelComparisons();
+        foreach (var editor in codeEditors.Values)
+            editor.CancelPendingSelection();
+        base.OnClosed(e);
+    }
+
+    private void CodeSelectionActivity(object? sender, EventArgs e)
+    {
+        if (sender is not CodeEditor editor || editor.Tag is not EditorContext context ||
+            !codeEditors.TryGetValue(context.Column.Label, out var currentEditor) ||
+            !ReferenceEquals(editor, currentEditor))
             return;
-        var selectedRows = editor.SelectedRows();
-        if (selectedRows is null) return;
+        activeSelectionEditor = editor;
+        foreach (var other in codeEditors.Values)
+            if (!ReferenceEquals(other, editor)) other.CancelPendingSelection();
+        CancelComparisons();
+        selection = null;
+        if (comparisons.Count > 0) comparisons.Clear();
+        ReferenceText.Text = "Finish selecting lines to generate a reference.";
+    }
+
+    private async void CodeSelectionSettled(object? sender, EventArgs e)
+    {
+        if (sender is not CodeEditor editor || editor.Tag is not EditorContext context ||
+            !ReferenceEquals(editor, activeSelectionEditor) ||
+            !codeEditors.TryGetValue(context.Column.Label, out var currentEditor) ||
+            !ReferenceEquals(editor, currentEditor))
+            return;
+        CancelComparisons();
+        var selectedRows = editor.SelectedRowSpans();
+        if (selectedRows.Count == 0)
+        {
+            ReferenceText.Text = "Select lines in a column to generate a reference.";
+            return;
+        }
         if (context.IsGoldenDiff || context.File is null ||
             context.File.Status.Kind is ApplyStatusKind.Failed or ApplyStatusKind.Binary)
             return;
-        var first = selectedRows.Value.Start + 1;
-        var last = selectedRows.Value.End + 1;
+        if (selectionCache is { } cached && ReferenceEquals(cached.Editor, editor) &&
+            cached.Rows.SequenceEqual(selectedRows))
+        {
+            SetSelection(cached.Selection);
+            foreach (var entry in cached.Comparisons) comparisons.Add(entry);
+            return;
+        }
         if (selectedPath.Length == 0) return;
         try
         {
-            var selected = context.DisplayLines.Skip(first - 1)
-                .Take(Math.Min(last, context.DisplayLines.Count) - first + 1).ToArray();
-            var reference = ReferenceGenerator.ForDisplaySelection(selected, context.File.Change.FileName);
-            var postLines = selected.Where(line => line.PostLine.HasValue).Select(line => line.PostLine!.Value).ToArray();
-            var baseLines = selected.Where(line => line.BaseLine.HasValue).Select(line => line.BaseLine!.Value).ToArray();
-            var start = postLines.Length > 0 ? postLines[0] : baseLines.FirstOrDefault();
-            var end = postLines.Length > 0 ? postLines[^1] : baseLines.LastOrDefault();
-            selection = new Selection(context.Column, context.File, start, end, reference,
-                string.Join(Environment.NewLine, selected.Select(line => line.Text)));
-            recentSelections.RemoveAll(existing => existing.Column.Label == context.Column.Label);
-            recentSelections.Add(selection);
-            if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
-            ReferenceText.Text = $"{context.Column.Label} — {reference}";
-            if (postLines.Length > 0)
-                UpdateComparisons(context.Column, context.File, postLines[0], postLines[^1]);
+            var groups = selectedRows.Select(span => context.DisplayLines.Skip(span.Lower - 1)
+                .Take(span.Upper - span.Lower + 1).ToArray()).ToArray();
+            var ranges = SelectionRanges.FromDisplayLines(groups.SelectMany(group => group));
+            var reference = ReferenceGenerator.ForRanges(ranges, context.File.Change.FileName);
+            var postSpans = ranges.Where(range => !range.IsBase).Select(range => range.Lines).ToArray();
+            var settledSelection = new Selection(context.Column, context.File, ranges, reference,
+                string.Join(Environment.NewLine + Environment.NewLine,
+                    groups.Select(group => string.Join(Environment.NewLine, group.Select(line => line.Text)))));
+            SetSelection(settledSelection);
+            ComparisonEntry[] entries = [];
+            if (postSpans.Length > 0)
+            {
+                using var cancellation = new CancellationTokenSource();
+                comparisonCancellation = cancellation;
+                var token = cancellation.Token;
+                try
+                {
+                    entries = await CompareSelectionAsync(context.Column, context.File,
+                        postSpans, token);
+                    if (token.IsCancellationRequested ||
+                        !ReferenceEquals(comparisonCancellation, cancellation))
+                        return;
+                    foreach (var entry in entries) comparisons.Add(entry);
+                }
+                finally
+                {
+                    if (ReferenceEquals(comparisonCancellation, cancellation))
+                        comparisonCancellation = null;
+                }
+            }
+            selectionCache = new SelectionCache(editor, selectedRows, settledSelection, entries);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer interaction or navigation owns the selection now.
         }
         catch (ArgumentException)
         {
@@ -826,25 +904,41 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateComparisons(LoadedColumn sourceColumn, AppliedFile sourceFile, int startLine, int endLine)
+    private void SetSelection(Selection value)
     {
-        comparisons.Clear();
-        var region = new Region(selectedPath, startLine, endLine);
-        foreach (var column in columns.Where(column => column.Label != sourceColumn.Label))
+        selection = value;
+        recentSelections.RemoveAll(existing => existing.Column.Label == value.Column.Label);
+        recentSelections.Add(value);
+        if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
+        ReferenceText.Text = $"{value.Column.Label} — {value.Reference}";
+    }
+
+    private Task<ComparisonEntry[]> CompareSelectionAsync(
+        LoadedColumn sourceColumn, AppliedFile sourceFile, IReadOnlyList<LineSpan> spans, CancellationToken token)
+    {
+        // Snapshot all mutable UI state before leaving the dispatcher.
+        var path = selectedPath;
+        var requests = columns.Where(column => column.Label != sourceColumn.Label).SelectMany(column => spans.Select(span =>
         {
-            var target = ColumnFile(column, selectedPath);
+            var target = ColumnFile(column, path);
             var manual = manualAnchors.LastOrDefault(anchor =>
                 anchor.SourceLabel == sourceColumn.Label && anchor.TargetLabel == column.Label &&
-                anchor.Path == selectedPath && anchor.SourceLines.Lower == startLine &&
-                anchor.SourceLines.Upper == endLine);
-            var result = AlignmentEngine.Locate(region, sourceFile, target, manual);
+                anchor.Path == path && anchor.SourceLines == span);
+            return (Column: column, File: target, Manual: manual, Label: BlindDisplayLabel(column.Label),
+                Region: new Region(path, span.Lower, span.Upper));
+        })).ToArray();
+        return Task.Run(() => requests.Select(request =>
+        {
+            token.ThrowIfCancellationRequested();
+            var result = AlignmentEngine.Locate(request.Region, sourceFile, request.File, request.Manual, token);
             var nearest = result.Status == AlignmentStatus.Absent && result.NearestHunkStart.HasValue
                 ? $" · nearest hunk at base line {result.NearestHunkStart}"
                 : "";
-            comparisons.Add(new ComparisonEntry(column, target, result,
-                $"{BlindDisplayLabel(column.Label)}: {result.Status.ToString().ToLowerInvariant()} " +
-                $"({result.Confidence:P0}){nearest}"));
-        }
+            return new ComparisonEntry(request.Column, request.File, result,
+                $"{request.Label} · L{request.Region.StartLine}:L{request.Region.EndLine}: " +
+                $"{result.Status.ToString().ToLowerInvariant()} " +
+                $"({result.Confidence:P0}){nearest}");
+        }).ToArray(), token);
     }
 
     private void ComparisonList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -902,8 +996,7 @@ public partial class MainWindow : Window
                     editor.ScrollToRow(sourceRow);
                     continue;
                 }
-                var targetRow = targetContext.DisplayLines.ToList()
-                    .FindIndex(line => line.BaseLine == baseLine);
+                var targetRow = editor.RowForBaseLine(baseLine.Value);
                 if (targetRow >= 0)
                     editor.ScrollToRow(targetRow);
             }
@@ -1346,22 +1439,23 @@ public partial class MainWindow : Window
 
     private void AddFinding_Click(object sender, RoutedEventArgs e)
     {
-        if (selection is null)
+        var selected = selection;
+        if (selected is null)
         {
             MessageBox.Show(this, "Select lines in a patch column first.", "PatchAdams#",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var dialog = new FindingDialog(selection.Reference, categories) { Owner = this };
+        var dialog = new FindingDialog(selected.Reference, categories) { Owner = this };
         if (dialog.ShowDialog() != true) return;
         if (!categories.Contains(dialog.Category, StringComparer.Ordinal))
             categories.Add(dialog.Category);
-        findings.Add(new SessionFinding(Guid.NewGuid(), selection.Column.Label, selection.File.Path,
-            new LineSpan(selection.Start, selection.End), selection.Reference, dialog.TitleText,
+        findings.Add(new SessionFinding(Guid.NewGuid(), selected.Column.Label, selected.File.Path,
+            selected.Ranges[0].Lines, selected.Reference, dialog.TitleText,
             dialog.Description, dialog.Category, Enum.Parse<FindingSeverity>(dialog.Severity, ignoreCase: true),
             Enum.Parse<RequestRelevance>(dialog.RequestAsks, ignoreCase: true), dialog.NotFlagged,
-            dialog.Note, [], DateTimeOffset.UtcNow));
-        findingLabels.Add($"{BlindDisplayLabel(selection.Column.Label)} · {dialog.Severity} · {dialog.TitleText} — {selection.Reference}");
+            dialog.Note, [], DateTimeOffset.UtcNow, selected.Ranges));
+        findingLabels.Add($"{BlindDisplayLabel(selected.Column.Label)} · {dialog.Severity} · {dialog.TitleText} — {selected.Reference}");
         StatusText.Text = "Finding recorded for this window.";
     }
 
@@ -1369,7 +1463,7 @@ public partial class MainWindow : Window
     {
         if (selection is null) return;
         pins.Add(new SessionPin(Guid.NewGuid(), selection.Column.Label, selection.File.Path,
-            new LineSpan(selection.Start, selection.End), selection.Reference, selection.Snippet));
+            selection.Ranges[0].Lines, selection.Reference, selection.Snippet, selection.Ranges));
         StatusText.Text = "Selection pinned.";
     }
 
@@ -1378,13 +1472,7 @@ public partial class MainWindow : Window
         var index = FindingsList.SelectedIndex;
         if (index < 0 || index >= findings.Count) return;
         var finding = findings[index];
-        selectedPath = finding.Path;
-        RenderColumns();
-        if (!codeEditors.TryGetValue(finding.Label, out var editor) || editor.Tag is not EditorContext context)
-            return;
-        var line = context.DisplayLines.ToList().FindIndex(displayLine =>
-            displayLine.PostLine == finding.Lines.Lower || displayLine.BaseLine == finding.Lines.Lower);
-        if (line >= 0) editor.ScrollToRow(line);
+        NavigateToSelection(finding.Label, finding.Path, finding.SelectedRanges);
     }
 
     private void CorrectAnchor_Click(object sender, RoutedEventArgs e)
@@ -1397,6 +1485,13 @@ public partial class MainWindow : Window
         }
         var source = recentSelections[0];
         var target = recentSelections[1];
+        if (source.Ranges.Count != 1 || target.Ranges.Count != 1 ||
+            source.Ranges[0].IsBase || target.Ranges[0].IsBase)
+        {
+            MessageBox.Show(this, "Manual anchors require one contiguous post-patch range in each column.",
+                "Manual anchor", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         if (source.File.Path != target.File.Path || source.Column.Label == target.Column.Label)
         {
             MessageBox.Show(this, "Choose regions from the same file in two different columns.",
@@ -1405,22 +1500,45 @@ public partial class MainWindow : Window
         }
         manualAnchors.RemoveAll(anchor => anchor.SourceLabel == source.Column.Label &&
             anchor.TargetLabel == target.Column.Label && anchor.Path == source.File.Path &&
-            anchor.SourceLines.Lower == source.Start && anchor.SourceLines.Upper == source.End);
+            anchor.SourceLines == source.Ranges[0].Lines);
         manualAnchors.Add(new ManualAnchor(Guid.NewGuid(), source.Column.Label, source.File.Path,
-            new LineSpan(source.Start, source.End), target.Column.Label, new LineSpan(target.Start, target.End)));
+            source.Ranges[0].Lines, target.Column.Label, target.Ranges[0].Lines));
+        CancelComparisons();
+        selectionCache = null;
         StatusText.Text = $"Manual anchor saved: {source.Column.Label} → {target.Column.Label}.";
     }
 
     private void PinsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (PinsList.SelectedItem is not SessionPin pin) return;
-        selectedPath = pin.Path;
-        RenderColumns();
-        if (!codeEditors.TryGetValue(pin.Label, out var editor) || editor.Tag is not EditorContext context)
+        NavigateToSelection(pin.Label, pin.Path, pin.SelectedRanges);
+    }
+
+    private void NavigateToSelection(string label, string path, IReadOnlyList<LineRange> ranges)
+    {
+        selectedPath = path;
+        var column = columns.FirstOrDefault(column => column.Label == label);
+        if (column is not null) column.IsHidden = false;
+        // Removed-side anchors refer to the shared base, not another golden patch's text.
+        if (golden is not null && golden != label)
+        {
+            golden = null;
+            PopulateGoldenMenu();
+        }
+        RenderColumnsCore(label, ranges.FirstOrDefault(range => !range.IsBase)?.Lines.Lower, ranges);
+        if (!codeEditors.TryGetValue(label, out var editor) || editor.Tag is not EditorContext context)
             return;
-        var row = context.DisplayLines.ToList().FindIndex(line => line.PostLine == pin.Lines.Lower ||
-            line.BaseLine == pin.Lines.Lower);
-        if (row >= 0) editor.ScrollToRow(row);
+        var rows = LineSpan.Normalize(context.DisplayLines.Select((line, index) => (line, index))
+            .Where(item => ranges.Any(range => range.Contains(item.line)))
+            .Select(item => new LineSpan(item.index + 1, item.index + 1)));
+        if (rows.Count == 0) return;
+        editor.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            if (!editor.IsLoaded) return;
+            editor.Focus();
+            editor.SelectRowSpans(rows);
+            editor.ScrollToRow(rows[0].Lower - 1);
+        }));
     }
 
     private async void OpenSession_Click(object sender, RoutedEventArgs e)
@@ -1518,9 +1636,11 @@ public partial class MainWindow : Window
     private sealed record SearchHit(LoadedColumn Column, AppliedFile File, int Line, string DisplayText);
 
     private sealed record Selection(
-        LoadedColumn Column, AppliedFile File, int Start, int End, string Reference, string Snippet);
+        LoadedColumn Column, AppliedFile File, IReadOnlyList<LineRange> Ranges, string Reference, string Snippet);
     private sealed record EditorContext(LoadedColumn Column, AppliedFile? File,
         IReadOnlyList<DisplayLine> DisplayLines, bool IsGoldenDiff);
+    private sealed record SelectionCache(CodeEditor Editor, IReadOnlyList<LineSpan> Rows,
+        Selection Selection, ComparisonEntry[] Comparisons);
 }
 
 internal sealed class TextPromptDialog : Window

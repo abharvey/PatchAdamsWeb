@@ -70,13 +70,19 @@ public static class DiffEngine
         return new LineDiff(builder.Finish());
     }
 
-    public static TokenDiff Tokens(string a, string b)
+    public static TokenDiff Tokens(string a, string b, CancellationToken cancellationToken = default) =>
+        Tokens(Tokenize(a, cancellationToken), Tokenize(b, cancellationToken), cancellationToken);
+
+    internal static TokenDiff Tokens(
+        IReadOnlyList<string> left, IReadOnlyList<string> right, CancellationToken cancellationToken)
     {
-        var left = Tokenize(a);
-        var right = Tokenize(b);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (left.SequenceEqual(right))
+            return new TokenDiff(left, right, left.Count == 0
+                ? [] : [new Edit(EditKind.Equal, 0, left.Count, 0, right.Count)]);
         var builder = new EditBuilder(left.Count, right.Count);
-        Myers(left, 0, left.Count, right, 0, right.Count, builder);
-        return new TokenDiff(left, right, builder.Finish());
+        Myers(left, 0, left.Count, right, 0, right.Count, builder, cancellationToken);
+        return new TokenDiff(left, right, builder.Finish(cancellationToken));
     }
 
     public static IReadOnlyList<string> SplitLines(string text)
@@ -87,14 +93,22 @@ public static class DiffEngine
         return lines;
     }
 
-    private static IReadOnlyList<string> Tokenize(string text) =>
-        Regex.Matches(text, @"[A-Za-z0-9_]+|[ \t\r\n]+|.", RegexOptions.Singleline)
-            .Select(match => match.Value).ToArray();
+    internal static IReadOnlyList<string> Tokenize(string text, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var tokens = new List<string>();
+        foreach (Match match in Regex.Matches(text, @"[A-Za-z0-9_]+|[ \t\r\n]+|.", RegexOptions.Singleline))
+        {
+            if ((tokens.Count & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+            tokens.Add(match.Value);
+        }
+        return tokens;
+    }
 
     private static void Myers<T>(IReadOnlyList<T> a, int alo, int ahi, IReadOnlyList<T> b, int blo, int bhi,
-        EditBuilder sink) where T : notnull
+        EditBuilder sink, CancellationToken cancellationToken = default) where T : notnull
     {
-        var scratch = new MyersScratch(a.Count + b.Count + 3);
+        var scratch = new MyersScratch(a.Count + b.Count + 3, cancellationToken);
         MyersRange(a, alo, ahi, b, blo, bhi, sink, scratch);
     }
 
@@ -104,14 +118,17 @@ public static class DiffEngine
         EditBuilder sink,
         MyersScratch scratch) where T : notnull
     {
+        scratch.CancellationToken.ThrowIfCancellationRequested();
         var originalAhi = ahi;
         var originalBhi = bhi;
         while (alo < ahi && blo < bhi && EqualityComparer<T>.Default.Equals(a[alo], b[blo]))
         {
+            if ((alo & 1023) == 0) scratch.CancellationToken.ThrowIfCancellationRequested();
             sink.Equal(alo++, blo++);
         }
         while (alo < ahi && blo < bhi && EqualityComparer<T>.Default.Equals(a[ahi - 1], b[bhi - 1]))
         {
+            if ((ahi & 1023) == 0) scratch.CancellationToken.ThrowIfCancellationRequested();
             ahi--;
             bhi--;
         }
@@ -163,6 +180,7 @@ public static class DiffEngine
 
         for (var d = 0; d <= max; d++)
         {
+            scratch.CancellationToken.ThrowIfCancellationRequested();
             for (var k = -d; k <= d; k += 2)
             {
                 var x = k == -d || (k != d && forward[offset + k - 1] < forward[offset + k + 1])
@@ -205,8 +223,9 @@ public static class DiffEngine
         return (0, 0, 0, 0);
     }
 
-    private sealed class MyersScratch(int capacity)
+    private sealed class MyersScratch(int capacity, CancellationToken cancellationToken)
     {
+        public CancellationToken CancellationToken { get; } = cancellationToken;
         public int[] Forward { get; } = new int[2 * capacity + 2];
         public int[] Reverse { get; } = new int[2 * capacity + 2];
     }
@@ -313,7 +332,7 @@ public static class DiffEngine
         public void Insert(int index) => inserted.Add(index);
         public void Equal(int a, int b) => equals.Add((a, b));
 
-        public IReadOnlyList<Edit> Finish()
+        public IReadOnlyList<Edit> Finish(CancellationToken cancellationToken = default)
         {
             var output = new List<Edit>();
             var i = 0;
@@ -339,6 +358,7 @@ public static class DiffEngine
 
             while (i < aCount || j < bCount)
             {
+                if (((i + j) & 1023) == 0) cancellationToken.ThrowIfCancellationRequested();
                 if (deleted.Contains(i))
                 {
                     Push(EditKind.Delete, i++, j);

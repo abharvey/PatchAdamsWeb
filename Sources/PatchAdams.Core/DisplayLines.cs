@@ -17,20 +17,23 @@ public static class DisplayLines
         AppliedFile file,
         bool collapseSyntheticFiller = true,
         bool includeRemoved = true,
-        int? revealPostLine = null)
+        int? revealPostLine = null,
+        IReadOnlyList<LineRange>? revealRanges = null)
     {
         var baseLines = DiffEngine.SplitLines(file.BaseText ?? "");
         var postLines = DiffEngine.SplitLines(file.PostText ?? "");
         var result = new List<DisplayLine>();
         var baseIndex = 0;
         var postIndex = 0;
+        bool RevealPost(int line) => line == revealPostLine ||
+            revealRanges?.Any(range => !range.IsBase && range.Lines.Contains(line)) == true;
 
         while (baseIndex < baseLines.Count)
         {
             var mappedPost = file.LineMap.PostForBase(baseIndex + 1);
             if (mappedPost is null)
             {
-                if (includeRemoved)
+                if (includeRemoved || revealRanges?.Any(range => range.IsBase && range.Lines.Contains(baseIndex + 1)) == true)
                     result.Add(new DisplayLine(DisplayLineKind.Removed, baseIndex + 1, null, baseLines[baseIndex]));
                 baseIndex++;
                 continue;
@@ -45,13 +48,13 @@ public static class DisplayLines
 
             if (collapseSyntheticFiller && SyntheticBase.IsFiller(baseLines[baseIndex]) &&
                 postIndex < postLines.Count && SyntheticBase.IsFiller(postLines[postIndex]) &&
-                postIndex + 1 != revealPostLine)
+                !RevealPost(postIndex + 1))
             {
                 var count = 0;
                 while (baseIndex < baseLines.Count && postIndex < postLines.Count &&
                        file.LineMap.PostForBase(baseIndex + 1) == postIndex + 1 &&
                        SyntheticBase.IsFiller(baseLines[baseIndex]) && SyntheticBase.IsFiller(postLines[postIndex]) &&
-                       postIndex + 1 != revealPostLine)
+                       !RevealPost(postIndex + 1))
                 {
                     baseIndex++;
                     postIndex++;
@@ -82,17 +85,19 @@ public static class DisplayLines
         int contextRows = 3,
         bool collapseSyntheticFiller = true,
         bool includeRemoved = true,
-        int? revealPostLine = null)
+        int? revealPostLine = null,
+        IReadOnlyList<LineRange>? revealRanges = null)
     {
         if (contextRows < 0)
             throw new ArgumentOutOfRangeException(nameof(contextRows));
-        var full = Create(file, collapseSyntheticFiller, includeRemoved, revealPostLine);
+        var full = Create(file, collapseSyntheticFiller, includeRemoved, revealPostLine, revealRanges);
         if (full.Count == 0)
             return [];
 
         var visible = new bool[full.Count];
         for (var row = 0; row < full.Count; row++)
-            if (full[row].PostLine == revealPostLine && revealPostLine.HasValue)
+            if ((full[row].PostLine == revealPostLine && revealPostLine.HasValue) ||
+                revealRanges?.Any(range => range.Contains(full[row])) == true)
                 for (var nearby = Math.Max(0, row - contextRows);
                      nearby <= Math.Min(full.Count - 1, row + contextRows); nearby++)
                     visible[nearby] = true;

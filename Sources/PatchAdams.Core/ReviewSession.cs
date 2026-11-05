@@ -19,7 +19,57 @@ public enum RequestRelevance
     Unclear
 }
 
-public sealed record LineSpan(int Lower, int Upper);
+public sealed record LineSpan(int Lower, int Upper)
+{
+    public bool Contains(int line) => line >= Lower && line <= Upper;
+
+    /// <summary>Normalizes one-based inclusive ranges without filling unselected gaps.</summary>
+    public static IReadOnlyList<LineSpan> Normalize(IEnumerable<LineSpan> spans)
+    {
+        var result = new List<LineSpan>();
+        foreach (var span in spans.OrderBy(span => span.Lower).ThenBy(span => span.Upper))
+        {
+            if (span.Lower < 1 || span.Upper < span.Lower)
+                throw new ArgumentException("Line ranges must be positive and ordered.", nameof(spans));
+            if (result.Count > 0 && span.Lower <= (long)result[^1].Upper + 1)
+                result[^1] = result[^1] with { Upper = Math.Max(result[^1].Upper, span.Upper) };
+            else
+                result.Add(span);
+        }
+        return result;
+    }
+}
+
+public sealed record LineRange(LineSpan Lines, bool IsBase = false)
+{
+    public bool Contains(DisplayLine line) => IsBase
+        ? line.PostLine is null && line.BaseLine is int baseLine && Lines.Contains(baseLine)
+        : line.PostLine is int postLine && Lines.Contains(postLine);
+}
+
+public static class SelectionRanges
+{
+    public static IReadOnlyList<LineRange> Normalize(IEnumerable<LineRange> ranges) =>
+        ranges.GroupBy(range => range.IsBase).OrderBy(group => group.Key)
+            .SelectMany(group => LineSpan.Normalize(group.Select(range => range.Lines))
+                .Select(span => new LineRange(span, group.Key))).ToArray();
+
+    public static IReadOnlyList<LineRange> FromDisplayLines(IEnumerable<DisplayLine> lines) =>
+        Normalize(lines.Where(line => line.Kind is not DisplayLineKind.CollapsedContext and not DisplayLineKind.SyntheticFiller &&
+                (line.PostLine.HasValue || line.BaseLine.HasValue))
+            .Select(line => new LineRange(new LineSpan(line.PostLine ?? line.BaseLine!.Value,
+                line.PostLine ?? line.BaseLine!.Value), IsBase: line.PostLine is null)));
+
+    public static IReadOnlyList<LineRange> Resolve(
+        IReadOnlyList<LineRange>? ranges, LineSpan legacyLines, string legacyReference)
+    {
+        var result = Normalize(ranges ?? [new LineRange(legacyLines,
+            IsBase: legacyReference.EndsWith($" -L{legacyLines.Lower}:L{legacyLines.Upper}", StringComparison.Ordinal))]);
+        if (result.Count == 0) throw new ArgumentException("A selection must contain at least one line range.");
+        return result;
+    }
+}
+
 public sealed record FindingAnchor(string Label, string Status, double Confidence, string? Reference);
 public enum CollapseSide { Left, Right }
 public sealed record SessionColumn(
@@ -50,14 +100,23 @@ public sealed record SessionFinding(
     bool NotFlagged,
     string Note,
     IReadOnlyList<FindingAnchor> Anchors,
-    DateTimeOffset Created)
+    DateTimeOffset Created,
+    IReadOnlyList<LineRange>? Ranges = null)
 {
+    [JsonIgnore]
+    public IReadOnlyList<LineRange> SelectedRanges => SelectionRanges.Resolve(Ranges, Lines, Reference);
+
     public bool IsComplete => !string.IsNullOrWhiteSpace(Title) &&
                               !string.IsNullOrWhiteSpace(Category) &&
                               !string.IsNullOrWhiteSpace(Reference);
 }
 
-public sealed record SessionPin(Guid Id, string Label, string Path, LineSpan Lines, string Reference, string Snippet);
+public sealed record SessionPin(Guid Id, string Label, string Path, LineSpan Lines, string Reference, string Snippet,
+    IReadOnlyList<LineRange>? Ranges = null)
+{
+    [JsonIgnore]
+    public IReadOnlyList<LineRange> SelectedRanges => SelectionRanges.Resolve(Ranges, Lines, Reference);
+}
 public sealed record ManualAnchor(Guid Id, string SourceLabel, string Path, LineSpan SourceLines,
     string TargetLabel, LineSpan TargetLines);
 public sealed record BlindMode(bool IsOn, ulong Seed);
@@ -78,7 +137,7 @@ public sealed record ReviewSession(
     DateTimeOffset Created,
     DateTimeOffset? Saved = null)
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public static IReadOnlyList<string> DefaultCategories { get; } =
     [
@@ -148,13 +207,16 @@ public static class ReferenceGenerator
 
     public static string ForDisplaySelection(IReadOnlyList<DisplayLine> lines, string fileName)
     {
-        var postLines = lines.Where(line => line.PostLine.HasValue).Select(line => line.PostLine!.Value).ToArray();
-        if (postLines.Length > 0)
-            return $"{fileName} L{postLines[0]}:L{postLines[^1]}";
-        var baseLines = lines.Where(line => line.BaseLine.HasValue).Select(line => line.BaseLine!.Value).ToArray();
-        if (baseLines.Length > 0)
-            return $"{fileName} -L{baseLines[0]}:L{baseLines[^1]}";
-        throw new ArgumentException("Selection has no base or post-patch line.", nameof(lines));
+        return ForRanges(SelectionRanges.FromDisplayLines(lines), fileName);
+    }
+
+    public static string ForRanges(IReadOnlyList<LineRange> ranges, string fileName)
+    {
+        var normalized = SelectionRanges.Normalize(ranges);
+        if (normalized.Count == 0)
+            throw new ArgumentException("Selection has no base or post-patch line.", nameof(ranges));
+        return $"{fileName} " + string.Join(", ", normalized.Select(range =>
+            $"{(range.IsBase ? "-" : "")}L{range.Lines.Lower}:L{range.Lines.Upper}"));
     }
 }
 
@@ -201,6 +263,15 @@ public static class SessionPackage
         if (session.Version > ReviewSession.CurrentVersion)
             throw new InvalidDataException(
                 $"session.json is version {session.Version}; this build reads up to {ReviewSession.CurrentVersion}");
+        try
+        {
+            foreach (var finding in session.Findings) _ = finding.SelectedRanges;
+            foreach (var pin in session.Pins) _ = pin.SelectedRanges;
+        }
+        catch (ArgumentException error)
+        {
+            throw new InvalidDataException("Session contains invalid selection ranges.", error);
+        }
         var patchDirectory = Path.GetFullPath(Path.Combine(root, PatchesDirectory));
         var patchPrefix = patchDirectory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var patches = new Dictionary<string, string>(StringComparer.Ordinal);

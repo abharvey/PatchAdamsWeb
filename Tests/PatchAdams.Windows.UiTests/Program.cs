@@ -33,7 +33,9 @@ internal static class Program
             RunNavigationTests(window);
             RunScrollbarTests(window);
             RunCopyCodeTests(window);
-            Console.WriteLine("PASS WPF navigation, compact scrollbars, copy-code buttons, and shared file caption.");
+            RunSelectionTests(window);
+            RunDisconnectedSelectionTests(window);
+            Console.WriteLine("PASS WPF navigation, scrollbars, copy code, deferred processing, and disconnected selections.");
             return 0;
         }
         catch (Exception error)
@@ -232,6 +234,352 @@ internal static class Program
         thumb.RaiseEvent(new DragDeltaEventArgs(horizontal, vertical) { RoutedEvent = Thumb.DragDeltaEvent });
         thumb.RaiseEvent(new DragCompletedEventArgs(horizontal, vertical, false) { RoutedEvent = Thumb.DragCompletedEvent });
         Pump();
+    }
+
+    private static void RunSelectionTests(MainWindow window)
+    {
+        Invoke(window, "SelectGolden", new object[] { null! });
+        ((MenuItem)window.FindName("BlindModeToggle")).IsChecked = false;
+        Invoke(window, "NavigateToPostLine", "A", "src/target.ts", 40);
+        Pump();
+        var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+        Check(editor.IsReadOnly && editor.IsReadOnlyCaretVisible &&
+              ((SolidColorBrush)editor.CaretBrush).Color == Color.FromRgb(229, 192, 123),
+            "read-only code exposes a high-contrast keyboard caret");
+        Check(((DispatcherTimer)GetField(editor, "selectionTimer")!).Interval == TimeSpan.FromMilliseconds(200),
+            "selection quiet period is configured to 200 ms");
+        var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        var settled = 0;
+        EventHandler onSettled = (_, _) => settled++;
+        editor.GetType().GetEvent("SelectionSettled")!.AddEventHandler(editor, onSettled);
+
+        MouseInput(editor, Mouse.PreviewMouseDownEvent);
+        editor.Selection.Select(paragraphs[20].ContentStart, paragraphs[30].ContentEnd);
+        PumpFor(300);
+        Check(settled == 0 && GetField(window, "selection") is null &&
+              GetField(window, "comparisonCancellation") is null,
+            "a paused mouse drag does not start selection processing");
+        MouseInput(editor, Mouse.PreviewMouseUpEvent);
+        PumpFor(130);
+        Check(settled == 0, "mouse release still waits the full 200 ms");
+        WaitUntil(() => settled == 1 && Comparisons(window).Count > 0, "mouse selection finishes after release");
+        Check(GetField(window, "selection") is not null, "settled mouse selection generates a finding reference");
+
+        // Changing character endpoints within the same rows reuses completed line comparisons.
+        var cached = GetField(window, "selectionCache");
+        editor.Selection.Select(paragraphs[20].ContentStart.GetNextInsertionPosition(LogicalDirection.Forward)!,
+            paragraphs[30].ContentEnd);
+        WaitUntil(() => settled == 2 && Comparisons(window).Count > 0, "same-row selection settles");
+        Check(ReferenceEquals(cached, GetField(window, "selectionCache")), "same-row changes reuse cached comparisons");
+
+        KeyInput(editor, Key.LeftShift, Keyboard.PreviewKeyDownEvent);
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyDownEvent);
+        // Exercise WPF's real keyboard selection command, not a replacement selection model.
+        EditingCommands.SelectDownByLine.Execute(null, editor);
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyDownEvent);
+        PumpFor(300);
+        Check(settled == 2 && GetField(window, "comparisonCancellation") is null,
+            "held and repeated selection keys do not start comparisons");
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyUpEvent);
+        PumpFor(250);
+        Check(settled == 2, "releasing the arrow still waits for Shift release");
+        KeyInput(editor, Key.LeftShift, Keyboard.PreviewKeyUpEvent);
+        PumpFor(130);
+        Check(settled == 2, "keyboard release still waits the full 200 ms");
+        WaitUntil(() => settled == 3 && Comparisons(window).Count > 0, "keyboard selection finishes after all keys release");
+
+        editor.Selection.Select(paragraphs[2].ContentStart, paragraphs[3].ContentEnd);
+        PumpFor(130);
+        editor.Selection.Select(paragraphs[4].ContentStart, paragraphs[5].ContentEnd);
+        PumpFor(130);
+        Check(settled == 3, "another selection change restarts the 200 ms quiet period");
+        WaitUntil(() => settled == 4 && Comparisons(window).Count > 0, "only the final selection is processed");
+
+        KeyInput(editor, Key.Down, Keyboard.PreviewKeyDownEvent);
+        // The user can release a held key after moving focus to another control.
+        ((TextBox)window.FindName("SearchBox")).Focus();
+        PumpFor(650);
+        Check(settled == 5, "lost keyboard focus cannot strand a pending selection");
+        editor.Focus();
+
+        editor.Selection.Select(paragraphs[1].ContentStart, paragraphs[1].ContentStart);
+        Check(GetField(window, "selection") is null && Comparisons(window).Count == 0,
+            "clearing selection immediately invalidates its reference and comparisons");
+        PumpFor(250);
+        Check(GetField(window, "selection") is null, "an empty selection cannot restore an old finding reference");
+
+        editor.Selection.Select(paragraphs[10].ContentStart, paragraphs[12].ContentEnd);
+        Invoke(window, "NavigateToPostLine", "B", "src/other.ts", 130);
+        PumpFor(400);
+        var reference = (TextBlock)window.FindName("ReferenceText");
+        Check(reference.Text.Contains("B — other.ts L130:L130", StringComparison.Ordinal),
+            "navigation discards a replaced editor's pending selection");
+        editor.Selection.Select(paragraphs[15].ContentStart, paragraphs[17].ContentEnd);
+        PumpFor(250);
+        Check(reference.Text.Contains("B — other.ts L130:L130", StringComparison.Ordinal),
+            "late events from a detached editor cannot invalidate the current selection");
+
+        RunBackgroundSelectionTest(window);
+        editor.GetType().GetEvent("SelectionSettled")!.RemoveEventHandler(editor, onSettled);
+    }
+
+    private static void RunBackgroundSelectionTest(MainWindow window)
+    {
+        var columns = ((IList)GetField(window, "columns")!).Cast<object>().ToArray();
+        var originals = columns.Select(column => column.GetType().GetProperty("Applied")!.GetValue(column)).ToArray();
+        try
+        {
+            // Similar, unmapped regions force expensive fallback work without running reviewed code.
+            for (var index = 0; index < columns.Length; index++)
+            {
+                var text = string.Join('\n', Enumerable.Range(1, 800).Select(line =>
+                    $"value{line} = input{line + index} + shared + shared + shared + shared;"));
+                var file = AppliedFile.Unchanged("src/target.ts", text) with
+                {
+                    BaseText = "",
+                    LineMap = new LineMap(new int?[800], [])
+                };
+                columns[index].GetType().GetProperty("Applied")!.SetValue(columns[index], new AppliedPatch([file]));
+            }
+            SetField(window, "selectedPath", "src/target.ts");
+            Invoke(window, "RenderColumns", null!, null!);
+            Pump();
+            var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+            var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+            editor.Selection.Select(paragraphs[100].ContentStart, paragraphs[499].ContentEnd);
+            editor.GetType().GetMethod("CancelPendingSelection")!.Invoke(editor, null);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            // Bypass only the already-tested delay to observe the worker before its first continuation.
+            Invoke(window, "CodeSelectionSettled", editor, EventArgs.Empty);
+            Check(clock.ElapsedMilliseconds < 150, "starting a large comparison does not block the dispatcher");
+            var cancellation = (CancellationTokenSource)GetField(window, "comparisonCancellation")!;
+            var token = cancellation.Token;
+            var heartbeats = 0;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+            timer.Tick += (_, _) => heartbeats++;
+            timer.Start();
+            PumpFor(80);
+            timer.Stop();
+            Check(heartbeats >= 2, "dispatcher keeps processing events during background alignment");
+            editor.Selection.Select(paragraphs[10].ContentStart, paragraphs[10].ContentEnd);
+            Check(token.IsCancellationRequested, "new selection cancels an in-flight comparison");
+            WaitUntil(() => Comparisons(window).Count > 0 && GetField(window, "comparisonCancellation") is null,
+                "latest selection publishes comparisons");
+            Check(((TextBlock)window.FindName("ReferenceText")).Text == "A — target.ts L11:L11",
+                "cancelled work cannot overwrite the latest reference");
+            var cache = GetField(window, "selectionCache")!;
+            Check(((IEnumerable<LineSpan>)cache.GetType().GetProperty("Rows")!.GetValue(cache)!)
+                    .SequenceEqual([new LineSpan(11, 11)]),
+                "only the latest row range enters the comparison cache");
+        }
+        finally
+        {
+            for (var index = 0; index < columns.Length; index++)
+                columns[index].GetType().GetProperty("Applied")!.SetValue(columns[index], originals[index]);
+            Invoke(window, "RenderColumns", null!, null!);
+            Pump();
+        }
+    }
+
+    private static IList Comparisons(MainWindow window) => (IList)GetField(window, "comparisons")!;
+
+    private static void RunDisconnectedSelectionTests(MainWindow window)
+    {
+        ((MenuItem)window.FindName("ShowRemovedToggle")).IsChecked = true;
+        Invoke(window, "NavigateToPostLine", "A", "src/target.ts", 100);
+        Pump();
+        var editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+        SelectPostLines(editor, 100, 105);
+        WaitUntil(() => SelectionReady(window, "target.ts L100:L105"), "initial line range settles");
+        AddCtrlRange(editor, () => SelectPostLines(editor, 20, 21), releaseControl: false);
+        PumpFor(250);
+        Check(GetField(window, "selection") is null, "Ctrl remains an active interaction between disconnected drags");
+        KeyInput(editor, Key.LeftCtrl, Keyboard.PreviewKeyUpEvent);
+        var reference = (TextBlock)window.FindName("ReferenceText");
+        WaitUntil(() => reference.Text == "A — target.ts L20:L21, L100:L105" &&
+                        SelectionReady(window, "target.ts L20:L21, L100:L105"), "Ctrl+drag combines separated ranges");
+        Check(SelectedRowSpans(editor).Count == 2, "selected rows do not include the gap");
+        var display = EditorLines(editor);
+        var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        var selectedRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 100);
+        var gapRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 50);
+        Check((paragraphs[selectedRow].Background as SolidColorBrush)?.Color == Color.FromRgb(62, 82, 111) &&
+              (paragraphs[gapRow].Background as SolidColorBrush)?.Color != Color.FromRgb(62, 82, 111),
+            "retained ranges stay highlighted without painting intervening lines");
+        Check(Comparisons(window).Count == 2, "each post-patch range gets a separate comparison");
+        var vertical = Descendants<ScrollBar>(editor).Single(bar => bar.Orientation == Orientation.Vertical);
+        vertical.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = Mouse.PreviewMouseDownEvent });
+        vertical.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = Mouse.PreviewMouseUpEvent });
+        Check(SelectedRowSpans(editor).Count == 2, "scrollbar interaction preserves disconnected highlights");
+
+        AddCtrlRange(editor, () => SelectPostLines(editor, 104, 108));
+        WaitUntil(() => reference.Text == "A — target.ts L20:L21, L100:L108" &&
+                        SelectionReady(window, "target.ts L20:L21, L100:L108"), "overlapping ranges merge without duplicates");
+        var removedRow = Enumerable.Range(0, display.Count).First(row =>
+            display[row].PostLine is null && display[row].BaseLine == 100);
+        AddCtrlRange(editor, () => editor.Selection.Select(paragraphs[removedRow].ContentStart,
+            paragraphs[removedRow].ContentEnd));
+        const string expectedReference = "target.ts L20:L21, L100:L108, -L100:L100";
+        WaitUntil(() => reference.Text == "A — " + expectedReference &&
+                        SelectionReady(window, expectedReference), "removed and post-patch ranges keep separate anchors");
+
+        var previousClipboard = Clipboard.GetDataObject();
+        try
+        {
+            ApplicationCommands.Copy.Execute(null, editor);
+            var text = Clipboard.GetText();
+            Check(text.Contains("needle-20", StringComparison.Ordinal) && text.Contains("needle-108", StringComparison.Ordinal) &&
+                  !text.Contains("needle-50", StringComparison.Ordinal) && !text.Contains(" | ", StringComparison.Ordinal),
+                "copy includes selected source lines only, with neither gaps nor gutters");
+        }
+        finally
+        {
+            if (previousClipboard is null) Clipboard.Clear();
+            else Clipboard.SetDataObject(previousClipboard, true);
+        }
+
+        Invoke(window, "PinSelection_Click", window, new RoutedEventArgs());
+        AddTestFinding(window, expectedReference);
+        var findings = ((IList)GetField(window, "findings")!).Cast<SessionFinding>().ToArray();
+        var finding = findings[^1];
+        var pin = ((IList)GetField(window, "pins")!).Cast<SessionPin>().Last();
+        Check(finding.SelectedRanges.Count == 3 && pin.SelectedRanges.SequenceEqual(finding.SelectedRanges),
+            "one finding and one pin retain all disconnected ranges and sides");
+        var session = (ReviewSession)Invoke(window, "BuildSession")!;
+        var columns = ((IList)GetField(window, "columns")!).Cast<object>().ToArray();
+        var patches = columns.ToDictionary(column => (string)column.GetType().GetProperty("Label")!.GetValue(column)!,
+            column => (string)column.GetType().GetProperty("PatchText")!.GetValue(column)!);
+        var package = Path.Combine(Path.GetDirectoryName((string)GetField(window, "basePath")!)!, "disconnected.patchadam");
+        SessionPackage.Write(new SessionContents(session, patches), package);
+        var reopened = SessionPackage.Read(package).Session;
+        Check(reopened.Findings.Last().SelectedRanges.SequenceEqual(finding.SelectedRanges) &&
+              MarkdownExport.Render(reopened).Contains(expectedReference, StringComparison.Ordinal),
+            "saved session and export preserve every range");
+
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyDownEvent);
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyUpEvent);
+        Check(SelectedRowSpans(editor).Count == 0, "Esc clears native and retained selections");
+        SelectPostLines(editor, 20, 21);
+        AddCtrlRange(editor, () => SelectPostLines(editor, 100, 105));
+        MouseInput(editor, Mouse.PreviewMouseDownEvent);
+        SelectPostLines(editor, 40, 41);
+        MouseInput(editor, Mouse.PreviewMouseUpEvent);
+        WaitUntil(() => reference.Text == "A — target.ts L40:L41", "ordinary drag replaces all disconnected ranges");
+        Check(SelectedRowSpans(editor).Count == 1, "ordinary selection leaves no hidden retained range");
+
+        ((MenuItem)window.FindName("ShowRemovedToggle")).IsChecked = false;
+        ((ListBox)window.FindName("FindingsList")).SelectedIndex = findings.Length - 1;
+        Pump();
+        WaitUntil(() => reference.Text == "A — " + expectedReference &&
+                        SelectionReady(window, expectedReference), "opening a finding restores every range");
+        editor = (RichTextBox)((IDictionary)GetField(window, "codeEditors")!)["A"]!;
+        Check(EditorLines(editor).Any(line => line.PostLine is null && line.BaseLine == 100),
+            "finding navigation reveals saved removed lines even when removed lines are hidden");
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyDownEvent);
+        KeyInput(editor, Key.Escape, Keyboard.PreviewKeyUpEvent);
+        display = EditorLines(editor);
+        paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        selectedRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 105);
+        gapRow = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == 50);
+        Check((paragraphs[selectedRow].Background as SolidColorBrush)?.Color == Color.FromRgb(65, 67, 47) &&
+              paragraphs[gapRow].Background is null,
+            "finding severity paints its ranges, never their bounding envelope");
+        ((ListBox)window.FindName("PinsList")).SelectedItem = pin;
+        Pump();
+        WaitUntil(() => reference.Text == "A — " + expectedReference, "opening a pin restores every range");
+    }
+
+    private static bool SelectionReady(MainWindow window, string reference)
+    {
+        var cache = GetField(window, "selectionCache");
+        if (cache is null || GetField(window, "comparisonCancellation") is not null) return false;
+        var selection = cache.GetType().GetProperty("Selection")!.GetValue(cache)!;
+        return (string?)selection.GetType().GetProperty("Reference")!.GetValue(selection) == reference;
+    }
+
+    private static void AddTestFinding(MainWindow window, string expectedReference)
+    {
+        Exception? failure = null;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        timer.Tick += (_, _) =>
+        {
+            var dialog = Application.Current.Windows.OfType<FindingDialog>().FirstOrDefault();
+            if (dialog is null) return;
+            timer.Stop();
+            try
+            {
+                Check(((TextBlock)dialog.FindName("ReferenceLabel")).Text == expectedReference,
+                    "finding dialog shows the complete disconnected reference");
+                ((TextBox)dialog.FindName("TitleBox")).Text = "Related disconnected lines";
+                ((TextBox)dialog.FindName("DescriptionBox")).Text = "These regions describe the same issue.";
+                Descendants<Button>(dialog).Single(button => (string?)button.Content == "Save")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }
+            catch (Exception error)
+            {
+                failure = error;
+                dialog.Close();
+            }
+        };
+        timer.Start();
+        try { Invoke(window, "AddFinding_Click", window, new RoutedEventArgs()); }
+        finally { timer.Stop(); }
+        if (failure is not null) throw failure;
+    }
+
+    private static void AddCtrlRange(RichTextBox editor, Action select, bool releaseControl = true)
+    {
+        KeyInput(editor, Key.LeftCtrl, Keyboard.PreviewKeyDownEvent);
+        MouseInput(editor, Mouse.PreviewMouseDownEvent);
+        select();
+        MouseInput(editor, Mouse.PreviewMouseUpEvent);
+        if (releaseControl) KeyInput(editor, Key.LeftCtrl, Keyboard.PreviewKeyUpEvent);
+    }
+
+    private static IReadOnlyList<DisplayLine> EditorLines(RichTextBox editor) =>
+        (IReadOnlyList<DisplayLine>)editor.GetType().GetProperty("DisplayLines")!.GetValue(editor)!;
+
+    private static IReadOnlyList<LineSpan> SelectedRowSpans(RichTextBox editor) =>
+        (IReadOnlyList<LineSpan>)editor.GetType().GetMethod("SelectedRowSpans")!.Invoke(editor, null)!;
+
+    private static void SelectPostLines(RichTextBox editor, int first, int last)
+    {
+        var display = EditorLines(editor);
+        var start = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == first);
+        var end = Enumerable.Range(0, display.Count).First(row => display[row].PostLine == last);
+        var paragraphs = editor.Document.Blocks.Cast<Paragraph>().ToArray();
+        editor.Selection.Select(paragraphs[start].ContentStart, paragraphs[end].ContentEnd);
+    }
+
+    private static void MouseInput(RichTextBox editor, RoutedEvent routedEvent) =>
+        editor.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        {
+            RoutedEvent = routedEvent
+        });
+
+    private static void KeyInput(RichTextBox editor, Key key, RoutedEvent routedEvent) =>
+        editor.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(editor),
+            Environment.TickCount, key) { RoutedEvent = routedEvent });
+
+    private static void WaitUntil(Func<bool> condition, string message)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline) PumpFor(10);
+        Check(condition(), message);
+    }
+
+    private static void PumpFor(int milliseconds)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Send)
+        {
+            Interval = TimeSpan.FromMilliseconds(milliseconds)
+        };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
     }
 
     private static IEnumerable<string> BaseLines(string path, int count)
