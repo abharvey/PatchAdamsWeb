@@ -171,11 +171,13 @@ public partial class MainWindow : Window
             columns.AddRange(loaded);
             golden = null;
             await ReloadPatchesAsync();
+            if (generation != patchLoadGeneration) return;
             StatusText.Text = $"{columns.Count} patches loaded.";
             AskBlindModeOnce();
         }
         catch (Exception error)
         {
+            if (generation != patchLoadGeneration) return;
             MessageBox.Show(this, error.Message, "Could not load patches", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -215,19 +217,23 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
+        var generation = ++patchLoadGeneration;
         try
         {
             var text = Clipboard.GetText();
             var patch = await Task.Run(() => UnifiedDiffParser.Parse(text));
+            if (generation != patchLoadGeneration) return;
             var label = new[] { "A", "B", "C", "D" }.First(candidate =>
                 columns.All(column => column.Label != candidate));
             columns.Add(new LoadedColumn(label, "pasted patch", text, patch));
             loadedSession = null;
             await ReloadPatchesAsync();
+            if (generation != patchLoadGeneration) return;
             StatusText.Text = $"Patch {BlindDisplayLabel(label)} pasted.";
         }
         catch (Exception error)
         {
+            if (generation != patchLoadGeneration) return;
             MessageBox.Show(this, error.Message, "Could not parse pasted patch", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -348,6 +354,7 @@ public partial class MainWindow : Window
         }
         catch (Exception error)
         {
+            if (generation != reloadGeneration) return;
             MessageBox.Show(this, error.Message, "Could not load base", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -1418,20 +1425,75 @@ public partial class MainWindow : Window
         viewer.ShowDialog();
     }
 
-    private void SaveSession_Click(object sender, RoutedEventArgs e)
+    private void NewSession_Click(object sender, RoutedEventArgs e)
     {
-        if (columns.Count == 0) return;
+        TryStartNewSession(() => MessageBox.Show(this,
+            "Save the current session before starting a new one?\n\n" +
+            "Yes saves first. No discards the current session. Cancel keeps it open.",
+            "New session", MessageBoxButton.YesNoCancel, MessageBoxImage.Question,
+            MessageBoxResult.Cancel), TrySaveSession);
+    }
+
+    private bool TryStartNewSession(Func<MessageBoxResult> confirm, Func<bool> save)
+    {
+        var answer = confirm();
+        if (answer != MessageBoxResult.No && (answer != MessageBoxResult.Yes || !save()))
+            return false;
+
+        // Retire pending loads before clearing state so they cannot restore the old review.
+        ++patchLoadGeneration;
+        ++reloadGeneration;
+        columns.Clear();
+        files.Clear();
+        visibleFiles.Clear();
+        findings.Clear();
+        findingLabels.Clear();
+        pins.Clear();
+        manualAnchors.Clear();
+        recentSelections.Clear();
+        baseTextForFiles.Clear();
+        categories.Clear();
+        categories.AddRange(ReviewSession.DefaultCategories);
+        loadedSession = null;
+        reviewerFeedback = "";
+        basePath = null;
+        baseRevision = null;
+        baseCommit = null;
+        baseKind = "synthetic";
+        selectedPath = "";
+        golden = null;
+        promptedForBlindMode = false;
+        blindSeed = unchecked((ulong)Random.Shared.NextInt64());
+        RequestBox.Clear();
+        RationaleBox.Clear();
+        SearchBox.Clear();
+        BlindModeToggle.IsChecked = false;
+        TestsOnlyToggle.IsChecked = false;
+        ReportText.Text = "";
+        RenderColumns();
+        RenderRanking();
+        PopulateGoldenMenu();
+        StatusText.Text = "New session. Choose a base or add patches to begin.";
+        return true;
+    }
+
+    private void SaveSession_Click(object sender, RoutedEventArgs e) => TrySaveSession();
+
+    private bool TrySaveSession()
+    {
         var dialog = new OpenFolderDialog { Title = "Choose or create a .patchadam session folder" };
-        if (dialog.ShowDialog(this) != true) return;
+        if (dialog.ShowDialog(this) != true) return false;
         try
         {
             SessionPackage.Write(new SessionContents(BuildSession(),
                 columns.ToDictionary(column => column.Label, column => column.PatchText)), dialog.FolderName);
             StatusText.Text = $"Session saved to {dialog.FolderName}";
+            return true;
         }
         catch (Exception error)
         {
             MessageBox.Show(this, error.Message, "Could not save session", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
         }
     }
 
@@ -1588,9 +1650,11 @@ public partial class MainWindow : Window
     {
         var dialog = new OpenFolderDialog { Title = "Open a .patchadam session folder" };
         if (dialog.ShowDialog(this) != true) return;
+        var generation = ++patchLoadGeneration;
         try
         {
             var contents = await Task.Run(() => SessionPackage.Read(dialog.FolderName));
+            if (generation != patchLoadGeneration) return;
             var restoredColumns = await Task.Run(() => contents.Session.Columns.Select(column =>
             {
                 var text = contents.PatchTexts[column.Label];
@@ -1603,6 +1667,7 @@ public partial class MainWindow : Window
                         ? column.WidthWeight : 1
                 };
             }).ToArray());
+            if (generation != patchLoadGeneration) return;
             columns.Clear();
             findings.Clear();
             findingLabels.Clear();
@@ -1628,10 +1693,12 @@ public partial class MainWindow : Window
             baseKind = contents.Session.Base.Kind;
             golden = contents.Session.Golden;
             await ReloadPatchesAsync();
+            if (generation != patchLoadGeneration) return;
             StatusText.Text = $"Session loaded: {dialog.FolderName}";
         }
         catch (Exception error)
         {
+            if (generation != patchLoadGeneration) return;
             MessageBox.Show(this, error.Message, "Could not open session", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

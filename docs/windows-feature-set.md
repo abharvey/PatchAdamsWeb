@@ -154,6 +154,12 @@ tests of the current engines and implementation tests for the Windows app.
 
 ## Sessions and persistence
 
+- File → New session asks whether to save the current session first. Yes opens
+  the session save picker and clears the review only after saving succeeds.
+  No discards it; Cancel, canceling the picker, or a failed save keeps it open.
+  Reset clears the base, patches, request, rankings, findings, feedback, pins,
+  manual anchors, selection, and review modes. Local theme, font, and panel
+  preferences remain unchanged. Pending loads cannot restore the cleared review.
 - Save and reopen a `.patchadam` session package containing session data and
   copies of loaded patches, plus a pointer to the base.
 - Restore request, patches, column order and visibility, golden selection,

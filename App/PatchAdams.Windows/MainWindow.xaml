@@ -11,6 +11,8 @@
                            VerticalAlignment="Center" Margin="4,0,16,0"/>
                 <Menu DockPanel.Dock="Left" VerticalAlignment="Center">
                     <MenuItem Header="_File">
+                        <MenuItem Header="_New session…" Click="NewSession_Click"/>
+                        <Separator/>
                         <MenuItem Header="Choose _base…" Click="ChooseBase_Click"/>
                         <MenuItem Header="Choose _archive…" Click="ChooseArchive_Click"/>
                         <MenuItem Header="_Git revision…" Click="ChooseGitRevision_Click"/>

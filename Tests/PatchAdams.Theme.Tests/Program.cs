@@ -10,6 +10,7 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         var app = new App();
         app.InitializeComponent();
         var palette = ThemePalette.Current;
@@ -65,6 +66,7 @@ internal static class Program
             result = DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int));
             Equal(0, result, "dark title bar supported");
         }
+        NewSessionTests.Run(window);
         window.Close();
         app.Shutdown();
         Console.WriteLine("PASS live theme brushes, XAML construction, fallback, and native title bar");
