@@ -445,9 +445,6 @@ internal sealed class CodeEditor : RichTextBox
 
     private static SolidColorBrush Brush(string color)
     {
-        var converted = (Color)ColorConverter.ConvertFromString(color)!;
-        var brush = new SolidColorBrush(converted);
-        brush.Freeze();
-        return brush;
+        return ThemePalette.Current.Brush(color);
     }
 }

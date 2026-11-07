@@ -1,20 +1,23 @@
 <Application x:Class="PatchAdamsSharp.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:PatchAdamsSharp"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <SolidColorBrush x:Key="OneDarkWindow" Color="#FF282C33"/>
-        <SolidColorBrush x:Key="OneDarkSurface" Color="#FF2F343E"/>
-        <SolidColorBrush x:Key="OneDarkElement" Color="#FF2E343E"/>
-        <SolidColorBrush x:Key="OneDarkHover" Color="#FF363C46"/>
-        <SolidColorBrush x:Key="OneDarkActive" Color="#FF454A56"/>
-        <SolidColorBrush x:Key="OneDarkBorder" Color="#FF464B57"/>
-        <SolidColorBrush x:Key="OneDarkControlBorder" Color="#FF818A98"/>
-        <SolidColorBrush x:Key="OneDarkAccent" Color="#FF74ADE8"/>
-        <SolidColorBrush x:Key="OneDarkText" Color="#FFDCE0E5"/>
-        <SolidColorBrush x:Key="OneDarkMutedText" Color="#FFA9AFBC"/>
+        <!-- Legacy resource names are retained; bound colors update even StaticResource consumers. -->
+        <SolidColorBrush x:Key="OneDarkWindow" Color="{Binding [#282C33], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkSurface" Color="{Binding [#2F343E], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkElement" Color="{Binding [#2E343E], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkHover" Color="{Binding [#363C46], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkActive" Color="{Binding [#454A56], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkBorder" Color="{Binding [#464B57], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkControlBorder" Color="{Binding [#818A98], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkAccent" Color="{Binding [#74ADE8], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkText" Color="{Binding [#DCE0E5], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="OneDarkMutedText" Color="{Binding [#A9AFBC], Source={x:Static local:ThemePalette.Current}}"/>
+        <SolidColorBrush x:Key="ThemeSelection" Color="{Binding [#6674ADE8], Source={x:Static local:ThemePalette.Current}}"/>
         <!-- Keep the native ScrollViewer corner consistent with the dark tracks. -->
-        <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#FF282C33"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="{Binding [#282C33], Source={x:Static local:ThemePalette.Current}}"/>
         <Style x:Key="ScrollPageButton" TargetType="RepeatButton">
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="IsTabStop" Value="False"/>
@@ -137,7 +140,7 @@
             <Setter Property="BorderBrush" Value="{StaticResource OneDarkControlBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CaretBrush" Value="{StaticResource OneDarkAccent}"/>
-            <Setter Property="SelectionBrush" Value="#6674ADE8"/>
+            <Setter Property="SelectionBrush" Value="{StaticResource ThemeSelection}"/>
             <Setter Property="Padding" Value="5,3"/>
             <Style.Triggers>
                 <Trigger Property="IsKeyboardFocusWithin" Value="True">

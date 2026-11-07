@@ -12,5 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Sources/PatchAdams.Core/PatchAdams.Core.csproj" />
+    <Content Include="../../docs/ayu-theme-license.txt" Link="ayu-theme-license.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

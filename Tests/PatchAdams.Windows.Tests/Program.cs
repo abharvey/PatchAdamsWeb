@@ -1022,7 +1022,14 @@ static class ThemeContrastTests
         var colors = app.Descendants()
             .Where(element => element.Name.LocalName == "SolidColorBrush")
             .ToDictionary(element => element.Attribute(xaml + "Key")!.Value,
-                element => element.Attribute("Color")!.Value);
+                element =>
+                {
+                    var value = element.Attribute("Color")!.Value;
+                    // Bound palettes retain the original One Dark color as the indexer key.
+                    return value.StartsWith("{Binding [", StringComparison.Ordinal)
+                        ? value[(value.IndexOf('[') + 1)..value.IndexOf(']')]
+                        : value;
+                });
 
         Check("OneDarkText", "OneDarkWindow", 4.5);
         Check("OneDarkText", "OneDarkSurface", 4.5);
@@ -1210,14 +1217,16 @@ static class LayoutPreferencesTests
         Assert.Equal(230d, original.FilePanelWidth, "older settings use default Files width");
         Assert.Equal(270d, original.ReviewPanelWidth, "older settings use default Review width");
         Assert.True(!original.RequestPanelCollapsed, "older settings keep request visible");
+        Assert.Equal("Ayu Dark", original.Theme, "older settings default to Ayu Dark");
 
-        var changed = original with { FilePanelWidth = 320, ReviewPanelWidth = 390, RequestPanelCollapsed = true };
+        var changed = original with { FilePanelWidth = 320, ReviewPanelWidth = 390, RequestPanelCollapsed = true, Theme = "One Dark" };
         var restored = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(
             System.Text.Json.JsonSerializer.Serialize(changed))!;
         Assert.Equal(320d, restored.FilePanelWidth, "Files width persists");
         Assert.Equal(390d, restored.ReviewPanelWidth, "Review width persists");
         Assert.True(restored.FilePanelCollapsed, "collapse state persists alongside width");
         Assert.True(restored.RequestPanelCollapsed, "request visibility persists independently");
+        Assert.Equal("One Dark", restored.Theme, "theme persists alongside layout preferences");
     }
 }
 

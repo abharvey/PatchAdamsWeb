@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="New finding" SizeToContent="WidthAndHeight" WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize" Background="#2F343E" Foreground="#DCE0E5">
+        ResizeMode="NoResize" Background="{StaticResource OneDarkSurface}" Foreground="{StaticResource OneDarkText}">
     <Grid Margin="16" Width="420">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>

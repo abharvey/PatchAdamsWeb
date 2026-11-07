@@ -56,6 +56,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         var preferences = AppPreferencesStore.Load();
+        UpdateThemeMenu();
         fontFamily = preferences.FontFamily;
         fontSize = Math.Clamp(preferences.FontSize, 9, 24);
         askBlindModeOnNewSession = preferences.AskBlindModeOnNewSession;
@@ -640,7 +641,7 @@ public partial class MainWindow : Window
             ResizeDirection = GridResizeDirection.Columns,
             ShowsPreview = true,
             Cursor = Cursors.SizeWE,
-            Background = new SolidColorBrush(Color.FromRgb(129, 138, 152))
+            Background = ThemePalette.Current.Brush("#818A98")
         };
         Grid.SetColumn(splitter, gridColumn);
         ColumnsGrid.Children.Add(splitter);
@@ -752,8 +753,8 @@ public partial class MainWindow : Window
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
-            Background = new SolidColorBrush(Color.FromRgb(47, 52, 62)),
-            Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229))
+            Background = ThemePalette.Current.Brush("#2F343E"),
+            Foreground = ThemePalette.Current.Brush("#DCE0E5")
         };
         var panel = new StackPanel { Margin = new Thickness(14) };
         var checks = new Dictionary<LoadedColumn, CheckBox>();
@@ -1223,12 +1224,25 @@ public partial class MainWindow : Window
         {
             AppPreferencesStore.Save(new AppPreferences(fontFamily, fontSize, askBlindModeOnNewSession,
                 filePanelCollapsed, reviewPanelCollapsed, filePanelWidth, reviewPanelWidth,
-                requestPanelCollapsed));
+                requestPanelCollapsed, ThemePalette.Current.Name));
         }
         catch (Exception error)
         {
             StatusText.Text = $"Could not save settings: {error.Message}";
         }
+    }
+
+    private void Theme_Click(object sender, RoutedEventArgs e)
+    {
+        ThemePalette.Current.Apply(ReferenceEquals(sender, OneDarkTheme) ? "One Dark" : "Ayu Dark");
+        UpdateThemeMenu();
+        SavePreferences();
+    }
+
+    private void UpdateThemeMenu()
+    {
+        AyuDarkTheme.IsChecked = ThemePalette.Current.Name == "Ayu Dark";
+        OneDarkTheme.IsChecked = ThemePalette.Current.Name == "One Dark";
     }
 
     private void AskBlindModeOnce()
@@ -1684,8 +1698,8 @@ internal sealed class TextPromptDialog : Window
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;
-        Background = new SolidColorBrush(Color.FromRgb(47, 52, 62));
-        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
+        Background = ThemePalette.Current.Brush("#2F343E");
+        Foreground = ThemePalette.Current.Brush("#DCE0E5");
         var panel = new StackPanel { Margin = new Thickness(16) };
         panel.Children.Add(new TextBlock { Text = prompt });
         panel.Children.Add(input);
@@ -1725,8 +1739,8 @@ internal sealed class PreferencesDialog : Window
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;
-        Background = new SolidColorBrush(Color.FromRgb(47, 52, 62));
-        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
+        Background = ThemePalette.Current.Brush("#2F343E");
+        Foreground = ThemePalette.Current.Brush("#DCE0E5");
         fontFamilyBox.Text = fontFamily;
         fontSizeBox.Text = fontSize.ToString(System.Globalization.CultureInfo.InvariantCulture);
         askBlindBox.IsChecked = askBlindMode;
@@ -1778,8 +1792,8 @@ internal sealed class RawPatchWindow : Window
         Width = 1000;
         Height = 750;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(40, 44, 51));
-        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
+        Background = ThemePalette.Current.Brush("#282C33");
+        Foreground = ThemePalette.Current.Brush("#DCE0E5");
         Content = new TextBox
         {
             Text = patchText,
@@ -1790,8 +1804,8 @@ internal sealed class RawPatchWindow : Window
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             FontFamily = new FontFamily("Consolas"),
-            Background = new SolidColorBrush(Color.FromRgb(40, 44, 51)),
-            Foreground = new SolidColorBrush(Color.FromRgb(171, 178, 191)),
+            Background = ThemePalette.Current.Brush("#282C33"),
+            Foreground = ThemePalette.Current.Brush("#ABB2BF"),
             Padding = new Thickness(8)
         };
     }
@@ -1813,8 +1827,8 @@ internal sealed class SearchResultsWindow : Window
         Width = 850;
         Height = 550;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(40, 44, 51));
-        Foreground = new SolidColorBrush(Color.FromRgb(220, 224, 229));
+        Background = ThemePalette.Current.Brush("#282C33");
+        Foreground = ThemePalette.Current.Brush("#DCE0E5");
         foreach (var hit in hits)
             results.Items.Add(hit);
 
