@@ -68,6 +68,14 @@ tests of the current engines and implementation tests for the Windows app.
   font and size, and keyboard shortcuts for common actions.
 - Keep a visible, high-contrast caret in read-only code so keyboard navigation
   and Shift-based selection remain discoverable.
+- View → Theme switches immediately between Ayu Dark (default) and One Dark,
+  including syntax, diff backgrounds, dialogs, and the native Windows title bar.
+  Theme choice is a local preference, not session data. Unknown theme names
+  fall back to Ayu Dark. Native caption colors use supported Windows DWM
+  attributes and retain standard window controls.
+  The Windows-only live palette smoke check is
+  `dotnet run --project Tests/PatchAdams.Theme.Tests/PatchAdams.Theme.Tests.csproj`;
+  it briefly opens the main window without saving preferences.
 - Group top-bar commands into compact File, View, Review, and Export menus,
   with search directly accessible. The request panel can be hidden and
   restored from View without clearing its text; visibility is a local preference.
@@ -146,6 +154,12 @@ tests of the current engines and implementation tests for the Windows app.
 
 ## Sessions and persistence
 
+- File → New session asks whether to save the current session first. Yes opens
+  the session save picker and clears the review only after saving succeeds.
+  No discards it; Cancel, canceling the picker, or a failed save keeps it open.
+  Reset clears the base, patches, request, rankings, findings, feedback, pins,
+  manual anchors, selection, and review modes. Local theme, font, and panel
+  preferences remain unchanged. Pending loads cannot restore the cleared review.
 - Save and reopen a `.patchadam` session package containing session data and
   copies of loaded patches, plus a pointer to the base.
 - Restore request, patches, column order and visibility, golden selection,
