@@ -352,6 +352,50 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style TargetType="Expander">
+            <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <StackPanel>
+                            <ToggleButton Content="{TemplateBinding Header}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalContentAlignment="Left"
+                                          IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="HeaderSurface" Padding="3,5"
+                                                Background="{StaticResource OneDarkSurface}">
+                                            <DockPanel>
+                                                <TextBlock x:Name="Glyph" Text="›" Width="16" FontWeight="Bold"/>
+                                                <ContentPresenter RecognizesAccessKey="True"/>
+                                            </DockPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Glyph" Property="Text" Value="⌄"/>
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="HeaderSurface" Property="Background" Value="{StaticResource OneDarkHover}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                <Setter TargetName="HeaderSurface" Property="Background" Value="{StaticResource OneDarkHover}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter x:Name="ExpandedContent" ContentSource="Content" Visibility="Collapsed"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter TargetName="ExpandedContent" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style TargetType="ContextMenu">
             <Setter Property="Background" Value="{StaticResource OneDarkSurface}"/>
             <Setter Property="Foreground" Value="{StaticResource OneDarkText}"/>
