@@ -60,6 +60,35 @@ static class DisconnectedSelectionTests
             "a collapsed summary is not a selected source line");
     }
 
+    public static void DuplicateFindingUsesTargetSelection()
+    {
+        var source = CreateSession().Findings.Single() with
+        {
+            Anchors = [new FindingAnchor("B", "modified", 0.9, "src/file.cs L50:L51")],
+            Note = "Copy note too"
+        };
+        var ranges = new[] { new LineRange(new LineSpan(30, 31)), new LineRange(new LineSpan(90, 92)) };
+        var duplicate = source.DuplicateFor("C", "src/file.cs", ranges, "src/file.cs L30:L31, L90:L92");
+        Assert.True(duplicate.Id != source.Id, "duplicate has an independent identity");
+        Assert.Equal("C", duplicate.Label, "duplicate uses target patch");
+        Assert.Equal("src/file.cs", duplicate.Path, "duplicate uses target file");
+        Assert.Equal(new LineSpan(30, 31), duplicate.Lines, "legacy anchor uses first target range");
+        Assert.Equal("src/file.cs L30:L31, L90:L92", duplicate.Reference, "duplicate uses target reference");
+        Assert.SequenceEqual(ranges, duplicate.SelectedRanges, "all target ranges preserved");
+        Assert.True(duplicate.Anchors.Count == 0, "source's patch-specific manual anchors do not copy");
+        Assert.Equal(source.Title, duplicate.Title, "title copied");
+        Assert.Equal(source.Description, duplicate.Description, "description copied");
+        Assert.Equal(source.Note, duplicate.Note, "note copied");
+        Assert.Equal(source.Category, duplicate.Category, "category copied");
+        Assert.Equal(source.Severity, duplicate.Severity, "severity copied");
+        Assert.Equal(source.RequestAsks, duplicate.RequestAsks, "request relevance copied");
+        Assert.True(duplicate.Created >= source.Created, "duplicate gets a new creation timestamp");
+        Assert.Throws<ArgumentException>(() => source.DuplicateFor("A", "src/file.cs", ranges, "A L30"),
+            "same-patch duplicate rejected");
+        Assert.Throws<ArgumentException>(() => source.DuplicateFor("C", "src/file.cs", [], "C"),
+            "empty target selection rejected");
+    }
+
     public static void RoundTripAndExport()
     {
         using var temporary = new TemporaryDirectory();

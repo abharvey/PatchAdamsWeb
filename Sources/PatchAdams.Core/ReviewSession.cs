@@ -109,6 +109,26 @@ public sealed record SessionFinding(
     public bool IsComplete => !string.IsNullOrWhiteSpace(Title) &&
                               !string.IsNullOrWhiteSpace(Category) &&
                               !string.IsNullOrWhiteSpace(Reference);
+
+    public SessionFinding DuplicateFor(string label, string path, IReadOnlyList<LineRange> ranges, string reference)
+    {
+        if (label == Label)
+            throw new ArgumentException("A finding can only be duplicated to a different patch.", nameof(label));
+        var selected = SelectionRanges.Normalize(ranges);
+        if (selected.Count == 0)
+            throw new ArgumentException("A finding duplicate needs at least one selected line range.", nameof(ranges));
+        return this with
+        {
+            Id = Guid.NewGuid(),
+            Label = label,
+            Path = path,
+            Lines = selected[0].Lines,
+            Reference = reference,
+            Anchors = [],
+            Created = DateTimeOffset.UtcNow,
+            Ranges = selected
+        };
+    }
 }
 
 public sealed record SessionPin(Guid Id, string Label, string Path, LineSpan Lines, string Reference, string Snippet,
