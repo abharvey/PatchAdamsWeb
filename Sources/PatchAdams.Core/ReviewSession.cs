@@ -365,7 +365,9 @@ public static class MarkdownExport
         var output = new List<string>();
         output.Add("# " + (string.IsNullOrWhiteSpace(session.Name) ? "Patch review" : session.Name));
         output.Add("");
-        output.Add($"_{session.Columns.Count} patches · {session.Findings.Count(finding => !finding.NotFlagged)} findings · {(date ?? DateTimeOffset.UtcNow):yyyy-MM-dd}_");
+        var comparisonCount = session.ComparisonFindings.Count > 0
+            ? $" · {session.ComparisonFindings.Count} comparison{(session.ComparisonFindings.Count == 1 ? "" : "s")}" : "";
+        output.Add($"_{session.Columns.Count} patches · {session.Findings.Count(finding => !finding.NotFlagged)} findings{comparisonCount} · {(date ?? DateTimeOffset.UtcNow):yyyy-MM-dd}_");
         output.Add("");
         if (!string.IsNullOrWhiteSpace(session.Request))
         {
@@ -437,6 +439,31 @@ public static class MarkdownExport
                 output.Add(line);
             }
             output.Add("");
+        }
+
+        if (session.ComparisonFindings.Count > 0)
+        {
+            output.Add("## Comparison findings");
+            output.Add("");
+            foreach (var finding in session.ComparisonFindings)
+            {
+                output.Add($"### {OneLine(finding.Title)}");
+                output.Add("");
+                output.Add($"**{finding.Severity.ToString().ToLowerInvariant()} · {finding.Category}**");
+                output.Add($"Comparison ID: `{finding.Id}`");
+                output.Add("");
+                output.Add(OneLine(finding.Description));
+                output.Add("");
+                if (finding.RequestAsks != RequestRelevance.Unclear)
+                    output.Add($"Request asks for this: {finding.RequestAsks.ToString().ToLowerInvariant()}.");
+                foreach (var evidence in finding.Evidence)
+                {
+                    output.Add($"- **Patch {session.DisplayLabel(evidence.Label)}** · `{evidence.Path}` · `{evidence.Reference}`");
+                    if (!string.IsNullOrWhiteSpace(evidence.Note))
+                        output.Add("  " + OneLine(evidence.Note));
+                }
+                output.Add("");
+            }
         }
 
         output.Add("## Rationale");
