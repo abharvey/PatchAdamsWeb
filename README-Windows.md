@@ -55,11 +55,22 @@ A normal drag, unmodified navigation key, or Esc clears the extra ranges.
 Shift+arrow keys extend the active range. Ctrl+C copies the selected source
 lines, without gutters or unselected gaps.
 
-Newly saved session packages use version 2 to preserve multiple ranges.
-This build can read version 1 sessions, but older builds cannot read version 2.
+Newly saved session packages use version 3 to preserve comparison findings as
+well as multiple ranges. This build reads version 1 and 2 sessions, but older
+builds cannot read version 3.
 Use a separate session package while trying this local build if you need to
 keep using an older build. Manual anchor corrections currently require a single
 contiguous post-patch range in each column.
+
+## Comparison finding persistence
+
+The persistence layer can store one comparison assessment with independently
+anchored evidence from two or more patches. Each location retains its file,
+disconnected line ranges, removed-base anchors, and optional observation.
+Ordinary findings and rankings remain independent. Session packages and JSON
+preserve comparison data, including through the current app's reopen/save flow.
+Creating or displaying comparisons and adding them to Markdown reports are not
+implemented yet; those are separate UI/export work.
 
 ## Correcting findings after reviewer feedback
 
