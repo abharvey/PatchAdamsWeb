@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<SessionPin> pins = [];
     private readonly ObservableCollection<ComparisonEntry> comparisons = [];
     private readonly List<SessionFinding> findings = [];
+    private readonly List<ComparisonFinding> comparisonFindings = [];
     private readonly List<string> categories = [.. ReviewSession.DefaultCategories];
     private readonly List<ManualAnchor> manualAnchors = [];
     private readonly List<Selection> recentSelections = [];
@@ -161,6 +162,7 @@ public partial class MainWindow : Window
             if (generation != patchLoadGeneration) return;
             columns.Clear();
             findings.Clear();
+            comparisonFindings.Clear();
             categories.Clear();
             categories.AddRange(ReviewSession.DefaultCategories);
             manualAnchors.Clear();
@@ -1478,6 +1480,7 @@ public partial class MainWindow : Window
         files.Clear();
         visibleFiles.Clear();
         findings.Clear();
+        comparisonFindings.Clear();
         findingLabels.Clear();
         pins.Clear();
         manualAnchors.Clear();
@@ -1729,10 +1732,15 @@ public partial class MainWindow : Window
     {
         var dialog = new OpenFolderDialog { Title = "Open a .patchadam session folder" };
         if (dialog.ShowDialog(this) != true) return;
+        await OpenSessionAsync(dialog.FolderName);
+    }
+
+    private async Task OpenSessionAsync(string directory)
+    {
         var generation = ++patchLoadGeneration;
         try
         {
-            var contents = await Task.Run(() => SessionPackage.Read(dialog.FolderName));
+            var contents = await Task.Run(() => SessionPackage.Read(directory));
             if (generation != patchLoadGeneration) return;
             var restoredColumns = await Task.Run(() => contents.Session.Columns.Select(column =>
             {
@@ -1749,6 +1757,7 @@ public partial class MainWindow : Window
             if (generation != patchLoadGeneration) return;
             columns.Clear();
             findings.Clear();
+            comparisonFindings.Clear();
             findingLabels.Clear();
             pins.Clear();
             manualAnchors.Clear();
@@ -1762,6 +1771,7 @@ public partial class MainWindow : Window
             categories.AddRange(contents.Session.Categories);
             columns.AddRange(restoredColumns);
             findings.AddRange(contents.Session.Findings);
+            comparisonFindings.AddRange(contents.Session.ComparisonFindings);
             foreach (var pin in contents.Session.Pins) pins.Add(pin);
             manualAnchors.AddRange(contents.Session.ManualAnchors);
             foreach (var finding in findings)
@@ -1773,7 +1783,7 @@ public partial class MainWindow : Window
             golden = contents.Session.Golden;
             await ReloadPatchesAsync();
             if (generation != patchLoadGeneration) return;
-            StatusText.Text = $"Session loaded: {dialog.FolderName}";
+            StatusText.Text = $"Session loaded: {directory}";
         }
         catch (Exception error)
         {
@@ -1800,7 +1810,10 @@ public partial class MainWindow : Window
                 RationaleBox.Text),
             pins.ToArray(), manualAnchors.ToArray(),
             new BlindMode(BlindModeToggle.IsChecked == true, blindSeed), old?.Created ?? DateTimeOffset.UtcNow,
-            ReviewerFeedback: reviewerFeedback);
+            ReviewerFeedback: reviewerFeedback)
+        {
+            ComparisonFindings = comparisonFindings.ToArray()
+        };
     }
 
     private sealed class LoadedColumn(string label, string sourceName, string patchText, Patch patch)
