@@ -79,6 +79,12 @@ tests of the current engines and implementation tests for the Windows app.
 - Group top-bar commands into compact File, View, Review, and Export menus,
   with search directly accessible. The request panel can be hidden and
   restored from View without clearing its text; visibility is a local preference.
+- Duplicate an existing finding onto a different candidate patch after selecting
+  the corresponding target lines. Copy its title, category, severity, description,
+  request relevance, note, and disposition, then review them in a prefilled form.
+  Keep target line ranges and references from the new selection; never carry over
+  the source patch's manual anchors. Ctrl+B toggles Files, Ctrl+Shift+R toggles
+  Review, Ctrl+O opens a session, and Ctrl+N starts a new session.
 - Form inputs, selection states, and focus indicators use the dark palette
   throughout the app. Normal input text and labels meet WCAG AA 4.5:1 contrast
   against their backgrounds; control boundaries and focus indicators meet

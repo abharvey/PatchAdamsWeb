@@ -39,6 +39,7 @@ var tests = new (string Name, Action Run)[]
     ("alignment and token diffs honor cancellation", AlignmentRegressionTests.CancellationStopsWork),
     ("disconnected ranges normalize without including gaps", DisconnectedSelectionTests.NormalizeWithoutGaps),
     ("fixture selections retain exact post and removed ranges", DisconnectedSelectionTests.FixtureSelectionsKeepExactLines),
+    ("duplicated findings copy review details but use new patch anchors", DisconnectedSelectionTests.DuplicateFindingUsesTargetSelection),
     ("disconnected findings and pins round-trip and export", DisconnectedSelectionTests.RoundTripAndExport),
     ("version one sessions retain single-range anchors", DisconnectedSelectionTests.LegacySessionsRemainReadable),
     ("compact views reveal every saved range", DisconnectedSelectionTests.CompactViewsRevealAllRanges),
@@ -1162,7 +1163,8 @@ static class LayoutPreferencesTests
             "AddPatches_Click", "PastePatch_Click", "OpenSession_Click", "SaveSession_Click",
             "ManageColumns_Click", "BalanceWidths_Click", "SmallerFont_Click", "LargerFont_Click",
             "Settings_Click", "CopyReference_Click", "ExportMarkdown_Click", "ExportJson_Click",
-            "CopyMarkdown_Click", "RequestPanelToggle_Click"
+            "CopyMarkdown_Click", "RequestPanelToggle_Click", "NewSession_Click", "FilePanelToggle_Click",
+            "ReviewPanelToggle_Click"
         })
             Assert.True(handlers.Contains(handler), $"menu retains {handler}");
         XNamespace ns = "http://schemas.microsoft.com/winfx/2006/xaml";
@@ -1177,6 +1179,15 @@ static class LayoutPreferencesTests
         var request = menu.Descendants().Single(element =>
             (string?)element.Attribute(ns + "Name") == "RequestPanelToggle");
         Assert.Equal("True", (string?)request.Attribute("IsCheckable"), "request visibility is checkable");
+        foreach (var (name, gesture) in new[]
+                 {
+                     ("New session…", "Ctrl+N"), ("Open session…", "Ctrl+O"),
+                     ("Files panel", "Ctrl+B"), ("Review panel", "Ctrl+Shift+R")
+                 })
+        {
+            var item = menu.Descendants().Single(element => (string?)element.Attribute("Header") == "_" + name);
+            Assert.Equal(gesture, (string?)item.Attribute("InputGestureText"), name + " shortcut is discoverable");
+        }
     }
 
     public static void SidebarsHaveSplitters()

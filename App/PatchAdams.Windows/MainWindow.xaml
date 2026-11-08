@@ -11,7 +11,7 @@
                            VerticalAlignment="Center" Margin="4,0,16,0"/>
                 <Menu DockPanel.Dock="Left" VerticalAlignment="Center">
                     <MenuItem Header="_File">
-                        <MenuItem Header="_New session…" Click="NewSession_Click"/>
+                        <MenuItem Header="_New session…" Click="NewSession_Click" InputGestureText="Ctrl+N"/>
                         <Separator/>
                         <MenuItem Header="Choose _base…" Click="ChooseBase_Click"/>
                         <MenuItem Header="Choose _archive…" Click="ChooseArchive_Click"/>
@@ -21,7 +21,7 @@
                         <MenuItem Header="Add _patches…" Click="AddPatches_Click"/>
                         <MenuItem Header="Paste patch" Click="PastePatch_Click" InputGestureText="Ctrl+Alt+V"/>
                         <Separator/>
-                        <MenuItem Header="_Open session…" Click="OpenSession_Click"/>
+                        <MenuItem Header="_Open session…" Click="OpenSession_Click" InputGestureText="Ctrl+O"/>
                         <MenuItem Header="_Save session…" Click="SaveSession_Click" InputGestureText="Ctrl+S"/>
                     </MenuItem>
                     <MenuItem Header="_View">
@@ -31,6 +31,10 @@
                         <Separator/>
                         <MenuItem x:Name="RequestPanelToggle" Header="_Request panel" IsCheckable="True"
                                   IsChecked="True" Click="RequestPanelToggle_Click"/>
+                        <MenuItem x:Name="FilePanelToggle" Header="_Files panel" IsCheckable="True"
+                                  IsChecked="True" InputGestureText="Ctrl+B" Click="FilePanelToggle_Click"/>
+                        <MenuItem x:Name="ReviewPanelToggle" Header="_Review panel" IsCheckable="True"
+                                  IsChecked="True" InputGestureText="Ctrl+Shift+R" Click="ReviewPanelToggle_Click"/>
                         <MenuItem x:Name="ScrollLockToggle" Header="_Scroll lock" IsCheckable="True"
                                   InputGestureText="Ctrl+L"/>
                         <MenuItem x:Name="ShowRemovedToggle" Header="Removed _lines" IsCheckable="True"
@@ -153,7 +157,10 @@
                                 <TextBlock Text="Findings" FontWeight="SemiBold"/>
                                 <ListBox x:Name="FindingsList" Margin="0,4,0,8" Height="260"
                                          SelectionChanged="FindingsList_SelectionChanged"/>
-                                <Button Content="Add finding from selection…" Click="AddFinding_Click"/>
+                                <Button Content="Add finding from selection…" Click="AddFinding_Click"
+                                        ToolTip="Ctrl+Shift+N"/>
+                                <Button x:Name="DuplicateFindingButton" Content="Duplicate selected finding for selection…"
+                                        IsEnabled="False" Click="DuplicateFinding_Click"/>
                                 <Button x:Name="RemoveFindingButton" Content="Remove selected finding…"
                                         IsEnabled="False" Click="RemoveFinding_Click"/>
                                 <Button Content="Reviewer feedback…" Click="ReviewerFeedback_Click"
