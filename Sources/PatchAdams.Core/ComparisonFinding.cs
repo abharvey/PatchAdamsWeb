@@ -28,6 +28,8 @@ public sealed record ComparisonFinding(
     IReadOnlyList<ComparisonEvidence> Evidence,
     DateTimeOffset Created)
 {
+    public void Validate(IEnumerable<string> columnLabels) => ValidateAll([this], columnLabels);
+
     internal static void ValidateAll(IReadOnlyList<ComparisonFinding> findings, IEnumerable<string> columnLabels)
     {
         if (findings is null)
