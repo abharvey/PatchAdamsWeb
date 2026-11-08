@@ -81,6 +81,7 @@ internal static class Program
         Equal(true, copyDialog.NotFlagged, "duplicate form disposition prefilled");
         copyDialog.Close();
         ComparisonPersistenceTests.Run(window);
+        ComparisonWorkflowTests.Run(window);
         NewSessionTests.Run(window);
         window.Close();
         app.Shutdown();
