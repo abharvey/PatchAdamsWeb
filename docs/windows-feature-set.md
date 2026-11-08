@@ -168,6 +168,17 @@ tests of the current engines and implementation tests for the Windows app.
   preferences remain unchanged. Pending loads cannot restore the cleared review.
 - Save and reopen a `.patchadam` session package containing session data and
   copies of loaded patches, plus a pointer to the base.
+- Session version 3 stores comparison findings separately from ordinary findings:
+  one shared title, assessment, category, severity, and request relevance, plus
+  explicit evidence from at least two distinct session patches. Each evidence
+  location has its own relative file path, base/post-patch ranges, and optional
+  note. References are derived from those ranges. Invalid evidence is rejected
+  before saving or opening a package.
+- Versions 1 and 2 load with an empty comparison collection. New saves use
+  version 3, which older builds reject rather than silently discarding comparison
+  data. The current app preserves comparisons on reopen/resave and clears them
+  with a new review. JSON includes them; comparison creation/display controls
+  and a dedicated Markdown section are deferred to the UI/export feature.
 - Restore request, patches, column order and visibility, golden selection,
   findings, reviewer feedback, pins, ranking, manual anchors, and blind-mode seed/state.
 - Older session packages without reviewer feedback open with an empty feedback
