@@ -48,6 +48,7 @@ var tests = new (string Name, Action Run)[]
     ("reviewer feedback round-trips large Slack text with fixture patches", ReviewerFeedbackTests.FeedbackRoundTripsWithFixture),
     ("older sessions open with empty reviewer feedback", ReviewerFeedbackTests.OlderSessionsHaveEmptyFeedback),
     ("comparison findings retain fixture evidence through save and resave", ComparisonFindingTests.FixtureEvidenceRoundTrips),
+    ("comparison Markdown exports one shared assessment with blind evidence labels", ComparisonFindingTests.MarkdownIncludesOneSharedComparison),
     ("older sessions default to no comparisons and upgrade on save", ComparisonFindingTests.OlderSessionsDefaultToEmptyComparisons),
     ("invalid comparison evidence is rejected before filesystem writes", ComparisonFindingTests.InvalidEvidenceIsRejectedBeforeWriting),
     ("malformed comparison manifests are rejected", ComparisonFindingTests.MalformedManifestsAreRejected),
