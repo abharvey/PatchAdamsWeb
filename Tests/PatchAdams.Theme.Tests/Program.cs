@@ -80,6 +80,7 @@ internal static class Program
         Equal(sourceFinding.Note, copyDialog.Note, "duplicate form note prefilled");
         Equal(true, copyDialog.NotFlagged, "duplicate form disposition prefilled");
         copyDialog.Close();
+        ComparisonPersistenceTests.Run(window);
         NewSessionTests.Run(window);
         window.Close();
         app.Shutdown();
