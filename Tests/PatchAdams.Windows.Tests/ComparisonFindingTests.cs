@@ -76,6 +76,29 @@ static class ComparisonFindingTests
         Assert.Throws<InvalidDataException>(() => SessionPackage.Read(temporary.Path), "future session versions rejected");
     }
 
+    public static void MarkdownIncludesOneSharedComparison()
+    {
+        var session = CreateFixtureSession().Session;
+        var finding = session.ComparisonFindings.Single();
+        var markdown = MarkdownExport.Render(session);
+        Assert.Equal(1, markdown.Split("### " + finding.Title, StringSplitOptions.None).Length - 1,
+            "comparison appears once, not under each ordinary patch");
+        Assert.Contains("## Comparison findings", markdown, "comparison section is separate");
+        Assert.Contains("1 comparison", markdown, "comparisons have their own summary count");
+        Assert.Contains($"Comparison ID: `{finding.Id}`", markdown, "shared identity is exported");
+        Assert.True(markdown.IndexOf("## Comparison findings", StringComparison.Ordinal) <
+            markdown.IndexOf("## Mapping", StringComparison.Ordinal), "blind identity mapping remains last");
+        var body = markdown[..markdown.IndexOf("## Mapping", StringComparison.Ordinal)];
+        foreach (var evidence in finding.Evidence)
+        {
+            Assert.Contains($"**Patch {session.DisplayLabel(evidence.Label)}**", body, "evidence uses blind display labels");
+            Assert.Contains(evidence.Reference, body, "evidence keeps exact selected ranges");
+        }
+        Assert.True(!body.Contains("kettle-1.patch", StringComparison.Ordinal) &&
+            !body.Contains("kettle-2.patch", StringComparison.Ordinal), "patch source names are not exposed early");
+        Assert.Equal(1, session.Findings.Count, "export does not create ordinary copies");
+    }
+
     public static void InvalidEvidenceIsRejectedBeforeWriting()
     {
         using var temporary = new TemporaryDirectory();
