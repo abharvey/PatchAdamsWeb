@@ -154,6 +154,72 @@
                                 <TextBlock Text="Compare selected ranges" FontWeight="SemiBold"/>
                                 <ListBox x:Name="ComparisonList" Height="150" Margin="0,4,0,10"
                                          DisplayMemberPath="DisplayText" SelectionChanged="ComparisonList_SelectionChanged"/>
+                                <TextBlock Text="Comparison findings" FontWeight="SemiBold"/>
+                                <Button x:Name="StartComparisonButton" Content="Start comparison from selection…"
+                                        IsEnabled="False" Click="StartComparison_Click"
+                                        ToolTip="Capture these lines, then select evidence in another patch"/>
+                                <Border x:Name="ComparisonDraftPanel" Visibility="Collapsed" Margin="0,6,0,10"
+                                        Padding="8" BorderThickness="1" BorderBrush="{StaticResource OneDarkAccent}"
+                                        Background="{StaticResource OneDarkWindow}">
+                                    <StackPanel>
+                                        <TextBlock x:Name="ComparisonDraftHeading" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Select lines in any patch, then add them here. Drafts are not saved with the session."
+                                                   TextWrapping="Wrap" Margin="0,4"/>
+                                        <ListBox x:Name="DraftComparisonEvidence" Height="110" Margin="0,4"
+                                                 AutomationProperties.Name="Draft comparison evidence"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 SelectionChanged="DraftComparisonEvidence_SelectionChanged">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                        <Label Content="Observation for this location" Target="{Binding ElementName=DraftEvidenceNote}"/>
+                                        <TextBox x:Name="DraftEvidenceNote" Height="55" AcceptsReturn="True" TextWrapping="Wrap"
+                                                 VerticalScrollBarVisibility="Auto" TextChanged="DraftEvidenceNote_TextChanged"
+                                                 AutomationProperties.Name="Evidence observation"/>
+                                        <Button x:Name="AddComparisonEvidenceButton" Content="Add current selection"
+                                                Click="AddComparisonEvidence_Click"/>
+                                        <Button x:Name="ReplaceEvidenceButton" Content="Replace selected evidence"
+                                                Click="ReplaceComparisonEvidence_Click"
+                                                ToolTip="Use the current code selection for the selected evidence row"/>
+                                        <WrapPanel>
+                                            <Button x:Name="NavigateDraftEvidenceButton" Content="Go to evidence"
+                                                    Click="NavigateDraftEvidence_Click"/>
+                                            <Button x:Name="RemoveEvidenceButton" Content="Remove evidence"
+                                                    Click="RemoveComparisonEvidence_Click"/>
+                                        </WrapPanel>
+                                        <TextBlock x:Name="ComparisonDraftStatus" TextWrapping="Wrap" Margin="0,4"/>
+                                        <Button x:Name="ReviewComparisonButton" Content="Review and save comparison…"
+                                                Click="ReviewComparisonDraft_Click"/>
+                                        <Button Content="Cancel draft" Click="CancelComparisonDraft_Click"/>
+                                    </StackPanel>
+                                </Border>
+                                <Expander x:Name="SavedComparisonsExpander" Header="Saved comparisons" Margin="0,4,0,10">
+                                    <StackPanel>
+                                        <ListBox x:Name="ComparisonFindingsList" Height="120" Margin="0,4"
+                                                 AutomationProperties.Name="Saved comparison findings"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 SelectionChanged="ComparisonFindingsList_SelectionChanged">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                        <TextBlock x:Name="ComparisonAssessment" TextWrapping="Wrap" Margin="0,4"/>
+                                        <ListBox x:Name="SavedComparisonEvidence" Height="100" Margin="0,4"
+                                                 AutomationProperties.Name="Saved comparison locations"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 SelectionChanged="SavedComparisonEvidence_SelectionChanged">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                        <TextBlock x:Name="SavedComparisonNote" TextWrapping="Wrap" Margin="0,4"/>
+                                        <Button x:Name="EditComparisonButton" Content="Edit comparison…"
+                                                IsEnabled="False" Click="EditComparison_Click"/>
+                                        <Button x:Name="RemoveComparisonButton" Content="Delete entire comparison…"
+                                                IsEnabled="False" Click="RemoveComparison_Click"/>
+                                    </StackPanel>
+                                </Expander>
                                 <TextBlock Text="Findings" FontWeight="SemiBold"/>
                                 <ListBox x:Name="FindingsList" Margin="0,4,0,8" Height="260"
                                          SelectionChanged="FindingsList_SelectionChanged"/>
