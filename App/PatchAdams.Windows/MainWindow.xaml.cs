@@ -843,6 +843,7 @@ public partial class MainWindow : Window
         selection = null;
         if (comparisons.Count > 0) comparisons.Clear();
         ReferenceText.Text = "Finish selecting lines to generate a reference.";
+        UpdateDuplicateFindingButton();
     }
 
     private async void CodeSelectionSettled(object? sender, EventArgs e)
@@ -917,6 +918,7 @@ public partial class MainWindow : Window
     private void SetSelection(Selection value)
     {
         selection = value;
+        UpdateDuplicateFindingButton();
         recentSelections.RemoveAll(existing => existing.Column.Label == value.Column.Label);
         recentSelections.Add(value);
         if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
@@ -1140,14 +1142,21 @@ public partial class MainWindow : Window
     private void CollapseFilePanel_Click(object sender, RoutedEventArgs e)
     {
         CaptureSidePanelWidths();
-        filePanelCollapsed = true;
-        ApplySidePanelLayout();
-        SavePreferences();
+        SetFilePanelCollapsed(true);
     }
 
     private void ExpandFilePanel_Click(object sender, RoutedEventArgs e)
     {
-        filePanelCollapsed = false;
+        SetFilePanelCollapsed(false);
+    }
+
+    private void FilePanelToggle_Click(object sender, RoutedEventArgs e) =>
+        SetFilePanelCollapsed(FilePanelToggle.IsChecked != true);
+
+    private void SetFilePanelCollapsed(bool collapsed)
+    {
+        filePanelCollapsed = collapsed;
+        FilePanelToggle.IsChecked = !collapsed;
         ApplySidePanelLayout();
         SavePreferences();
     }
@@ -1155,14 +1164,21 @@ public partial class MainWindow : Window
     private void CollapseReviewPanel_Click(object sender, RoutedEventArgs e)
     {
         CaptureSidePanelWidths();
-        reviewPanelCollapsed = true;
-        ApplySidePanelLayout();
-        SavePreferences();
+        SetReviewPanelCollapsed(true);
     }
 
     private void ExpandReviewPanel_Click(object sender, RoutedEventArgs e)
     {
-        reviewPanelCollapsed = false;
+        SetReviewPanelCollapsed(false);
+    }
+
+    private void ReviewPanelToggle_Click(object sender, RoutedEventArgs e) =>
+        SetReviewPanelCollapsed(ReviewPanelToggle.IsChecked != true);
+
+    private void SetReviewPanelCollapsed(bool collapsed)
+    {
+        reviewPanelCollapsed = collapsed;
+        ReviewPanelToggle.IsChecked = !collapsed;
         ApplySidePanelLayout();
         SavePreferences();
     }
@@ -1189,6 +1205,8 @@ public partial class MainWindow : Window
 
     private void ApplySidePanelLayout()
     {
+        FilePanelToggle.IsChecked = !filePanelCollapsed;
+        ReviewPanelToggle.IsChecked = !reviewPanelCollapsed;
         FilePanelColumn.MinWidth = filePanelCollapsed ? 36 : 120;
         FilePanelColumn.MaxWidth = 600;
         FilePanelColumn.Width = new GridLength(filePanelCollapsed ? 36 : filePanelWidth);
@@ -1295,8 +1313,21 @@ public partial class MainWindow : Window
         switch (e.Key)
         {
             case Key.S: SaveSession_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.N when modifiers.HasFlag(ModifierKeys.Shift):
+                AddFinding_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.N: NewSession_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.O: OpenSession_Click(this, new RoutedEventArgs()); e.Handled = true; break;
+            case Key.B:
+                FilePanelToggle.IsChecked = !filePanelCollapsed;
+                SetFilePanelCollapsed(!filePanelCollapsed);
+                e.Handled = true;
+                break;
+            case Key.R when modifiers.HasFlag(ModifierKeys.Shift):
+                ReviewPanelToggle.IsChecked = !reviewPanelCollapsed;
+                SetReviewPanelCollapsed(!reviewPanelCollapsed);
+                e.Handled = true;
+                break;
             case Key.F: SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; break;
-            case Key.N: AddFinding_Click(this, new RoutedEventArgs()); e.Handled = true; break;
             case Key.P: PinSelection_Click(this, new RoutedEventArgs()); e.Handled = true; break;
             case Key.L: ScrollLockToggle.IsChecked = !ScrollLockToggle.IsChecked; e.Handled = true; break;
             case Key.E when modifiers.HasFlag(ModifierKeys.Shift): Export(markdown: false); e.Handled = true; break;
@@ -1537,6 +1568,53 @@ public partial class MainWindow : Window
         StatusText.Text = "Finding recorded for this window.";
     }
 
+    private void DuplicateFinding_Click(object sender, RoutedEventArgs e)
+    {
+        var sourceIndex = FindingsList.SelectedIndex;
+        var target = selection;
+        if (sourceIndex < 0 || sourceIndex >= findings.Count)
+        {
+            MessageBox.Show(this, "Select the existing finding to copy first.", "Duplicate finding",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (target is null)
+        {
+            MessageBox.Show(this, "Select the matching lines in the target patch first.", "Duplicate finding",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var source = findings[sourceIndex];
+        if (source.Label == target.Column.Label)
+        {
+            MessageBox.Show(this, "Select lines in a different patch from the source finding.",
+                "Duplicate finding", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var dialog = new FindingDialog(target.Reference, categories, source) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        if (!categories.Contains(dialog.Category, StringComparer.Ordinal))
+            categories.Add(dialog.Category);
+        var duplicate = source.DuplicateFor(target.Column.Label, target.File.Path, target.Ranges, target.Reference) with
+        {
+            Title = dialog.TitleText,
+            Description = dialog.Description,
+            Category = dialog.Category,
+            Severity = Enum.Parse<FindingSeverity>(dialog.Severity, ignoreCase: true),
+            RequestAsks = Enum.Parse<RequestRelevance>(dialog.RequestAsks, ignoreCase: true),
+            NotFlagged = dialog.NotFlagged,
+            Note = dialog.Note
+        };
+        findings.Add(duplicate);
+        findingLabels.Add($"{BlindDisplayLabel(duplicate.Label)} · {duplicate.Severity} · {duplicate.Title} — {duplicate.Reference}");
+        StatusText.Text = $"Finding duplicated to patch {BlindDisplayLabel(duplicate.Label)}. Save the session to keep it.";
+    }
+
+    private void UpdateDuplicateFindingButton() =>
+        DuplicateFindingButton.IsEnabled = selection is not null &&
+            FindingsList.SelectedIndex >= 0 && FindingsList.SelectedIndex < findings.Count &&
+            findings[FindingsList.SelectedIndex].Label != selection.Column.Label;
+
     private void RemoveFinding_Click(object sender, RoutedEventArgs e)
     {
         var index = FindingsList.SelectedIndex;
@@ -1575,6 +1653,7 @@ public partial class MainWindow : Window
     {
         var index = FindingsList.SelectedIndex;
         RemoveFindingButton.IsEnabled = index >= 0 && index < findings.Count;
+        UpdateDuplicateFindingButton();
         if (index < 0 || index >= findings.Count) return;
         var finding = findings[index];
         NavigateToSelection(finding.Label, finding.Path, finding.SelectedRanges);

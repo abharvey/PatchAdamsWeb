@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using PatchAdams.Core;
 using PatchAdamsSharp;
 
 internal static class Program
@@ -66,6 +67,19 @@ internal static class Program
             result = DwmSetWindowAttribute(handle, 20, ref dark, sizeof(int));
             Equal(0, result, "dark title bar supported");
         }
+        var sourceFinding = new SessionFinding(Guid.NewGuid(), "A", "source.cs", new LineSpan(4, 6),
+            "source.cs L4:L6", "Finding title", "Keep description", "security", FindingSeverity.Blocking,
+            RequestRelevance.Yes, true, "Keep correctness note",
+            [new FindingAnchor("B", "modified", 0.9, "target.cs L4:L6")], DateTimeOffset.UtcNow);
+        var copyDialog = new FindingDialog("target.cs L20:L22", ["security", "other"], sourceFinding);
+        Equal(sourceFinding.Title, copyDialog.TitleText, "duplicate form title prefilled");
+        Equal(sourceFinding.Description, copyDialog.Description, "duplicate form description prefilled");
+        Equal(sourceFinding.Category, copyDialog.Category, "duplicate form category prefilled");
+        Equal("blocking", copyDialog.Severity, "duplicate form severity prefilled");
+        Equal("yes", copyDialog.RequestAsks, "duplicate form request relevance prefilled");
+        Equal(sourceFinding.Note, copyDialog.Note, "duplicate form note prefilled");
+        Equal(true, copyDialog.NotFlagged, "duplicate form disposition prefilled");
+        copyDialog.Close();
         NewSessionTests.Run(window);
         window.Close();
         app.Shutdown();
