@@ -158,7 +158,9 @@ public sealed record ReviewSession(
     DateTimeOffset? Saved = null,
     string ReviewerFeedback = "")
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
+
+    public IReadOnlyList<ComparisonFinding> ComparisonFindings { get; init; } = [];
 
     public static IReadOnlyList<string> DefaultCategories { get; } =
     [
@@ -253,6 +255,8 @@ public static class SessionPackage
 
     public static void Write(SessionContents contents, string directory)
     {
+        ComparisonFinding.ValidateAll(contents.Session.ComparisonFindings,
+            contents.Session.Columns.Select(column => column.Label));
         var root = Path.GetFullPath(directory);
         Directory.CreateDirectory(root);
         var patchDirectory = Path.Combine(root, PatchesDirectory);
@@ -284,6 +288,9 @@ public static class SessionPackage
         if (session.Version > ReviewSession.CurrentVersion)
             throw new InvalidDataException(
                 $"session.json is version {session.Version}; this build reads up to {ReviewSession.CurrentVersion}");
+        ComparisonFinding.ValidateAll(session.ComparisonFindings, session.Columns.Select(column => column.Label));
+        if (session.Version < 3 && session.ComparisonFindings.Count > 0)
+            throw new InvalidDataException("Comparison findings require session version 3 or later.");
         try
         {
             foreach (var finding in session.Findings) _ = finding.SelectedRanges;
@@ -309,7 +316,13 @@ public static class SessionPackage
         return new SessionContents(session, patches);
     }
 
-    public static byte[] Encode(ReviewSession session) => JsonSerializer.SerializeToUtf8Bytes(session, JsonOptions);
+    public static byte[] Encode(ReviewSession session)
+    {
+        ComparisonFinding.ValidateAll(session.ComparisonFindings, session.Columns.Select(column => column.Label));
+        if (session.Version < 3 && session.ComparisonFindings.Count > 0)
+            throw new InvalidDataException("Comparison findings require session version 3 or later.");
+        return JsonSerializer.SerializeToUtf8Bytes(session, JsonOptions);
+    }
 
     public static string SafeFileName(string name)
     {
