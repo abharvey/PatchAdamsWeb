@@ -66,6 +66,12 @@ tests of the current engines and implementation tests for the Windows app.
   reduced, hunks-only view.
 - Provide syntax coloring for supported languages, configurable monospace
   font and size, and keyboard shortcuts for common actions.
+- Recognize `.java` case-insensitively and use Java-specific vocabulary,
+  primitive types, annotations, strings/characters, numbers, comments, and
+  method-name heuristics. Existing languages retain their basic shared lexer.
+  The current lexer is line-based; multiline state and semantic parsing are
+  outside this implementation. Maintain the exact inventory and backlog in
+  `docs/syntax-highlighting.md`, including C#, Kotlin, VB.NET, and PHP.
 - Keep a visible, high-contrast caret in read-only code so keyboard navigation
   and Shift-based selection remain discoverable.
 - View → Theme switches immediately between Ayu Dark (default) and One Dark,
