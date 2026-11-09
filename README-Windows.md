@@ -12,6 +12,16 @@ The app makes no network requests and never executes code from a patch.
 - .NET 10 SDK to publish or install from a source checkout.
 - Git is optional; it is needed only to open a Git revision as the base.
 
+## Syntax coloring
+
+Java `.java` files now receive Java-specific, line-based token coloring.
+TypeScript/JavaScript, C#, C/C++, Go, Rust, Python, Swift, Zig, shell, and several
+document formats already have basic shared-lexer coloring. Kotlin, VB.NET, and
+PHP are still planned. This is lexical coloring, not full language parsing.
+
+See [syntax support and roadmap](docs/syntax-highlighting.md) for the exact
+extension inventory, known limits, and requested future languages.
+
 ## Build and test
 
 From the repository root, with the .NET 10 SDK installed:
