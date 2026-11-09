@@ -158,7 +158,9 @@ public sealed record ReviewSession(
     DateTimeOffset? Saved = null,
     string ReviewerFeedback = "")
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
+
+    public IReadOnlyList<ComparisonFinding> ComparisonFindings { get; init; } = [];
 
     public static IReadOnlyList<string> DefaultCategories { get; } =
     [
@@ -253,6 +255,8 @@ public static class SessionPackage
 
     public static void Write(SessionContents contents, string directory)
     {
+        ComparisonFinding.ValidateAll(contents.Session.ComparisonFindings,
+            contents.Session.Columns.Select(column => column.Label));
         var root = Path.GetFullPath(directory);
         Directory.CreateDirectory(root);
         var patchDirectory = Path.Combine(root, PatchesDirectory);
@@ -284,6 +288,9 @@ public static class SessionPackage
         if (session.Version > ReviewSession.CurrentVersion)
             throw new InvalidDataException(
                 $"session.json is version {session.Version}; this build reads up to {ReviewSession.CurrentVersion}");
+        ComparisonFinding.ValidateAll(session.ComparisonFindings, session.Columns.Select(column => column.Label));
+        if (session.Version < 3 && session.ComparisonFindings.Count > 0)
+            throw new InvalidDataException("Comparison findings require session version 3 or later.");
         try
         {
             foreach (var finding in session.Findings) _ = finding.SelectedRanges;
@@ -309,7 +316,13 @@ public static class SessionPackage
         return new SessionContents(session, patches);
     }
 
-    public static byte[] Encode(ReviewSession session) => JsonSerializer.SerializeToUtf8Bytes(session, JsonOptions);
+    public static byte[] Encode(ReviewSession session)
+    {
+        ComparisonFinding.ValidateAll(session.ComparisonFindings, session.Columns.Select(column => column.Label));
+        if (session.Version < 3 && session.ComparisonFindings.Count > 0)
+            throw new InvalidDataException("Comparison findings require session version 3 or later.");
+        return JsonSerializer.SerializeToUtf8Bytes(session, JsonOptions);
+    }
 
     public static string SafeFileName(string name)
     {
@@ -352,7 +365,9 @@ public static class MarkdownExport
         var output = new List<string>();
         output.Add("# " + (string.IsNullOrWhiteSpace(session.Name) ? "Patch review" : session.Name));
         output.Add("");
-        output.Add($"_{session.Columns.Count} patches · {session.Findings.Count(finding => !finding.NotFlagged)} findings · {(date ?? DateTimeOffset.UtcNow):yyyy-MM-dd}_");
+        var comparisonCount = session.ComparisonFindings.Count > 0
+            ? $" · {session.ComparisonFindings.Count} comparison{(session.ComparisonFindings.Count == 1 ? "" : "s")}" : "";
+        output.Add($"_{session.Columns.Count} patches · {session.Findings.Count(finding => !finding.NotFlagged)} findings{comparisonCount} · {(date ?? DateTimeOffset.UtcNow):yyyy-MM-dd}_");
         output.Add("");
         if (!string.IsNullOrWhiteSpace(session.Request))
         {
@@ -424,6 +439,31 @@ public static class MarkdownExport
                 output.Add(line);
             }
             output.Add("");
+        }
+
+        if (session.ComparisonFindings.Count > 0)
+        {
+            output.Add("## Comparison findings");
+            output.Add("");
+            foreach (var finding in session.ComparisonFindings)
+            {
+                output.Add($"### {OneLine(finding.Title)}");
+                output.Add("");
+                output.Add($"**{finding.Severity.ToString().ToLowerInvariant()} · {finding.Category}**");
+                output.Add($"Comparison ID: `{finding.Id}`");
+                output.Add("");
+                output.Add(OneLine(finding.Description));
+                output.Add("");
+                if (finding.RequestAsks != RequestRelevance.Unclear)
+                    output.Add($"Request asks for this: {finding.RequestAsks.ToString().ToLowerInvariant()}.");
+                foreach (var evidence in finding.Evidence)
+                {
+                    output.Add($"- **Patch {session.DisplayLabel(evidence.Label)}** · `{evidence.Path}` · `{evidence.Reference}`");
+                    if (!string.IsNullOrWhiteSpace(evidence.Note))
+                        output.Add("  " + OneLine(evidence.Note));
+                }
+                output.Add("");
+            }
         }
 
         output.Add("## Rationale");

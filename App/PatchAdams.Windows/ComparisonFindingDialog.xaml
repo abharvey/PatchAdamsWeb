@@ -1,0 +1,33 @@
+<Window x:Class="PatchAdamsSharp.ComparisonFindingDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Comparison assessment" Width="540" Height="660" MinWidth="420" MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource OneDarkSurface}" Foreground="{StaticResource OneDarkText}">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="Back to draft" IsCancel="True"/>
+            <Button Content="Save comparison" IsDefault="True" Click="Save_Click"/>
+        </StackPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Comparison evidence" FontWeight="SemiBold"/>
+                <TextBlock x:Name="EvidenceSummary" TextWrapping="Wrap" Margin="0,4,0,12"
+                           Foreground="{StaticResource OneDarkMutedText}"/>
+                <Label Content="_Title (required)" Target="{Binding ElementName=TitleBox}"/>
+                <TextBox x:Name="TitleBox" Margin="0,4,0,10" AutomationProperties.Name="Comparison title"/>
+                <Label Content="_Assessment (required)" Target="{Binding ElementName=DescriptionBox}"/>
+                <TextBox x:Name="DescriptionBox" Height="160" AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" Margin="0,4,0,10"
+                         AutomationProperties.Name="Shared comparison assessment"/>
+                <Label Content="_Category (required)" Target="{Binding ElementName=CategoryBox}"/>
+                <ComboBox x:Name="CategoryBox" IsEditable="True" Margin="0,4,0,10"
+                          AutomationProperties.Name="Comparison category"/>
+                <Label Content="_Severity" Target="{Binding ElementName=SeverityBox}"/>
+                <ComboBox x:Name="SeverityBox" Margin="0,4,0,10" AutomationProperties.Name="Comparison severity"/>
+                <Label Content="_Does the request ask for this?" Target="{Binding ElementName=RequestAsksBox}"/>
+                <ComboBox x:Name="RequestAsksBox" Margin="0,4,0,10" AutomationProperties.Name="Comparison request relevance"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

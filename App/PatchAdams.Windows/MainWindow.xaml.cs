@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<SessionPin> pins = [];
     private readonly ObservableCollection<ComparisonEntry> comparisons = [];
     private readonly List<SessionFinding> findings = [];
+    private readonly List<ComparisonFinding> comparisonFindings = [];
     private readonly List<string> categories = [.. ReviewSession.DefaultCategories];
     private readonly List<ManualAnchor> manualAnchors = [];
     private readonly List<Selection> recentSelections = [];
@@ -72,6 +73,7 @@ public partial class MainWindow : Window
         FindingsList.ItemsSource = findingLabels;
         PinsList.ItemsSource = pins;
         ComparisonList.ItemsSource = comparisons;
+        InitializeComparisonFindings();
         RationaleBox.Text = "";
         PopulateGoldenMenu();
     }
@@ -144,6 +146,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!ConfirmDiscardComparisonDraft()) return;
         await LoadPatchFilesAsync(dialog.FileNames);
     }
 
@@ -161,6 +164,8 @@ public partial class MainWindow : Window
             if (generation != patchLoadGeneration) return;
             columns.Clear();
             findings.Clear();
+            comparisonFindings.Clear();
+            ResetComparisonReview();
             categories.Clear();
             categories.AddRange(ReviewSession.DefaultCategories);
             manualAnchors.Clear();
@@ -200,6 +205,7 @@ public partial class MainWindow : Window
                 "PatchAdams#", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
+        if (!ConfirmDiscardComparisonDraft()) return;
         await LoadPatchFilesAsync(patches);
     }
 
@@ -340,6 +346,7 @@ public partial class MainWindow : Window
             if (result.UsedFallback)
                 StatusText.Text = "The saved base is unavailable; rebuilt a synthetic base from the patches.";
             PopulateGoldenMenu();
+            RefreshComparisonFindings();
             ReportText.Text = string.Join(Environment.NewLine, columns.Select(column =>
                 $"{(BlindModeToggle.IsChecked == true ? $"Patch {BlindDisplayLabel(column.Label)}" : $"{column.Label} — {column.SourceName}")}: {column.Applied!.Report.Clean} clean, " +
                 $"{column.Applied.Report.Fuzz} fuzz, {column.Applied.Report.Failed} failed, " +
@@ -428,6 +435,7 @@ public partial class MainWindow : Window
         columnDefinitions.Clear();
         codeEditors.Clear();
         selection = null;
+        UpdateComparisonCaptureButtons();
         comparisons.Clear();
         ReferenceText.Text = "Select lines in a column to generate a reference.";
         SelectedFileText.Text = selectedPath;
@@ -844,6 +852,7 @@ public partial class MainWindow : Window
         if (comparisons.Count > 0) comparisons.Clear();
         ReferenceText.Text = "Finish selecting lines to generate a reference.";
         UpdateDuplicateFindingButton();
+        UpdateComparisonCaptureButtons();
     }
 
     private async void CodeSelectionSettled(object? sender, EventArgs e)
@@ -912,6 +921,7 @@ public partial class MainWindow : Window
         catch (ArgumentException)
         {
             selection = null;
+            UpdateComparisonCaptureButtons();
         }
     }
 
@@ -919,6 +929,7 @@ public partial class MainWindow : Window
     {
         selection = value;
         UpdateDuplicateFindingButton();
+        UpdateComparisonCaptureButtons();
         recentSelections.RemoveAll(existing => existing.Column.Label == value.Column.Label);
         recentSelections.Add(value);
         if (recentSelections.Count > 2) recentSelections.RemoveAt(0);
@@ -1029,6 +1040,7 @@ public partial class MainWindow : Window
     private void BlindMode_Changed(object sender, RoutedEventArgs e)
     {
         if (!IsInitialized) return;
+        RefreshComparisonFindings();
         PopulateGoldenMenu();
         RenderColumns();
         RenderRanking();
@@ -1460,7 +1472,9 @@ public partial class MainWindow : Window
     {
         TryStartNewSession(() => MessageBox.Show(this,
             "Save the current session before starting a new one?\n\n" +
-            "Yes saves first. No discards the current session. Cancel keeps it open.",
+            "Yes saves first. No discards the current session. Cancel keeps it open." +
+            (ComparisonDraftPanel.Visibility == Visibility.Visible
+                ? "\n\nThe unfinished comparison draft is not included. Cancel and finish it first to keep it." : ""),
             "New session", MessageBoxButton.YesNoCancel, MessageBoxImage.Question,
             MessageBoxResult.Cancel), TrySaveSession);
     }
@@ -1478,6 +1492,8 @@ public partial class MainWindow : Window
         files.Clear();
         visibleFiles.Clear();
         findings.Clear();
+        comparisonFindings.Clear();
+        ResetComparisonReview();
         findingLabels.Clear();
         pins.Clear();
         manualAnchors.Clear();
@@ -1727,12 +1743,18 @@ public partial class MainWindow : Window
 
     private async void OpenSession_Click(object sender, RoutedEventArgs e)
     {
+        if (!ConfirmDiscardComparisonDraft()) return;
         var dialog = new OpenFolderDialog { Title = "Open a .patchadam session folder" };
         if (dialog.ShowDialog(this) != true) return;
+        await OpenSessionAsync(dialog.FolderName);
+    }
+
+    private async Task OpenSessionAsync(string directory)
+    {
         var generation = ++patchLoadGeneration;
         try
         {
-            var contents = await Task.Run(() => SessionPackage.Read(dialog.FolderName));
+            var contents = await Task.Run(() => SessionPackage.Read(directory));
             if (generation != patchLoadGeneration) return;
             var restoredColumns = await Task.Run(() => contents.Session.Columns.Select(column =>
             {
@@ -1749,6 +1771,7 @@ public partial class MainWindow : Window
             if (generation != patchLoadGeneration) return;
             columns.Clear();
             findings.Clear();
+            comparisonFindings.Clear();
             findingLabels.Clear();
             pins.Clear();
             manualAnchors.Clear();
@@ -1762,6 +1785,8 @@ public partial class MainWindow : Window
             categories.AddRange(contents.Session.Categories);
             columns.AddRange(restoredColumns);
             findings.AddRange(contents.Session.Findings);
+            comparisonFindings.AddRange(contents.Session.ComparisonFindings);
+            ResetComparisonReview();
             foreach (var pin in contents.Session.Pins) pins.Add(pin);
             manualAnchors.AddRange(contents.Session.ManualAnchors);
             foreach (var finding in findings)
@@ -1773,7 +1798,7 @@ public partial class MainWindow : Window
             golden = contents.Session.Golden;
             await ReloadPatchesAsync();
             if (generation != patchLoadGeneration) return;
-            StatusText.Text = $"Session loaded: {dialog.FolderName}";
+            StatusText.Text = $"Session loaded: {directory}";
         }
         catch (Exception error)
         {
@@ -1800,7 +1825,10 @@ public partial class MainWindow : Window
                 RationaleBox.Text),
             pins.ToArray(), manualAnchors.ToArray(),
             new BlindMode(BlindModeToggle.IsChecked == true, blindSeed), old?.Created ?? DateTimeOffset.UtcNow,
-            ReviewerFeedback: reviewerFeedback);
+            ReviewerFeedback: reviewerFeedback)
+        {
+            ComparisonFindings = comparisonFindings.ToArray()
+        };
     }
 
     private sealed class LoadedColumn(string label, string sourceName, string patchText, Patch patch)

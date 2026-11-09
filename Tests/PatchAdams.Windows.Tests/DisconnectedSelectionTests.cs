@@ -96,7 +96,7 @@ static class DisconnectedSelectionTests
         SessionPackage.Write(new SessionContents(session, new Dictionary<string, string> { ["A"] = "patch data" }),
             temporary.Path);
         var loaded = SessionPackage.Read(temporary.Path).Session;
-        Assert.Equal(2, loaded.Version, "new schema prevents older readers from discarding extra ranges");
+        Assert.Equal(ReviewSession.CurrentVersion, loaded.Version, "new saves use the current session schema");
         Assert.SequenceEqual(Example, loaded.Findings[0].SelectedRanges, "finding ranges survive save/load");
         Assert.SequenceEqual(Example, loaded.Pins[0].SelectedRanges, "pin ranges survive save/load");
         Assert.Contains("file.cs L20:L21, L100:L105, -L40:L41", MarkdownExport.Render(loaded),

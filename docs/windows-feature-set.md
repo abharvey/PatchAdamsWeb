@@ -137,6 +137,17 @@ tests of the current engines and implementation tests for the Windows app.
   context as needed. Open saved anchors against the shared base if the target
   is currently showing a golden comparison. Manual anchor corrections still
   require one contiguous post-patch range in each column.
+- Start a comparison finding from a selection, then collect explicit evidence
+  from other patches in a visible draft tray. Support multiple files and ranges,
+  independent observations, navigation, replacement, and removal of evidence.
+  Require at least two distinct patches before saving a shared assessment.
+  Returning from the assessment form retains typed text in the draft.
+- List saved comparisons separately from ordinary findings. Show the shared
+  assessment and clickable evidence locations with blind-mode labels. Editing
+  uses a draft and does not mutate the saved comparison until confirmed.
+  Deleting an entire comparison requires confirmation; removing draft evidence
+  does not delete the saved assessment. Drafts are temporary, excluded from
+  session saves, and cleared when replacing or starting a review.
 - Store title, category, severity, description, request relevance, optional
   note, and a not-flagged review disposition. Findings remain anchored to
   their patch and line range.
@@ -156,6 +167,9 @@ tests of the current engines and implementation tests for the Windows app.
 - Export the review to Markdown and JSON. Markdown includes the request,
   ranking, findings grouped in rank order, not-flagged passes, rationale,
   and (when blind) the mapping last. JSON includes anchors and confidence.
+- Export each comparison once in a dedicated Markdown section with its shared
+  ID, assessment, and per-patch evidence/notes. Count comparisons separately
+  from ordinary findings, preserve blind evidence labels, and keep the mapping last.
 - Copy generated references and Markdown to the clipboard.
 
 ## Sessions and persistence
@@ -168,6 +182,17 @@ tests of the current engines and implementation tests for the Windows app.
   preferences remain unchanged. Pending loads cannot restore the cleared review.
 - Save and reopen a `.patchadam` session package containing session data and
   copies of loaded patches, plus a pointer to the base.
+- Session version 3 stores comparison findings separately from ordinary findings:
+  one shared title, assessment, category, severity, and request relevance, plus
+  explicit evidence from at least two distinct session patches. Each evidence
+  location has its own relative file path, base/post-patch ranges, and optional
+  note. References are derived from those ranges. Invalid evidence is rejected
+  before saving or opening a package.
+- Versions 1 and 2 load with an empty comparison collection. New saves use
+  version 3, which older builds reject rather than silently discarding comparison
+  data. The current app preserves comparisons on reopen/resave and clears them
+  with a new review. JSON includes them, and Markdown renders them in a separate
+  section without duplicating ordinary findings.
 - Restore request, patches, column order and visibility, golden selection,
   findings, reviewer feedback, pins, ranking, manual anchors, and blind-mode seed/state.
 - Older session packages without reviewer feedback open with an empty feedback

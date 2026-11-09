@@ -55,11 +55,37 @@ A normal drag, unmodified navigation key, or Esc clears the extra ranges.
 Shift+arrow keys extend the active range. Ctrl+C copies the selected source
 lines, without gutters or unselected gaps.
 
-Newly saved session packages use version 2 to preserve multiple ranges.
-This build can read version 1 sessions, but older builds cannot read version 2.
+Newly saved session packages use version 3 to preserve comparison findings as
+well as multiple ranges. This build reads version 1 and 2 sessions, but older
+builds cannot read version 3.
 Use a separate session package while trying this local build if you need to
 keep using an older build. Manual anchor corrections currently require a single
 contiguous post-patch range in each column.
+
+## Comparison findings
+
+Select lines in one patch, then choose **Start comparison from selection…** in
+Review. The draft tray retains this evidence while you navigate to another patch
+or file. Select its lines and choose **Add current selection**. Each evidence row
+has an independent observation; you can replace its lines, remove it, or navigate
+back to it. Multiple disconnected ranges and removed lines are supported.
+
+Choose **Review and save comparison…** once evidence includes at least two
+distinct patches. Write the shared title, assessment, category, severity, and
+request relevance. **Back to draft** retains typed text while you adjust evidence.
+Drafts are temporary and are not included in session saves.
+
+Saved comparisons appear separately from ordinary findings. Select a comparison
+to read the assessment, then select an evidence location to navigate to its lines
+and view its observation. **Edit comparison…** creates a draft without changing
+the saved version until you save it. Removing draft evidence is different from
+**Delete entire comparison…**, which requires confirmation and removes the whole
+assessment. Save the session with Ctrl+S to persist saved comparisons.
+
+Ordinary findings and rankings remain independent. Session packages and JSON
+preserve all comparison data; Markdown includes one shared comparison section,
+not copies under every patch. Blind-mode labels are used throughout the UI and
+in the report's evidence list, with the identity mapping kept last.
 
 ## Correcting findings after reviewer feedback
 
