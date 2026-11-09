@@ -9,7 +9,7 @@ using PatchAdams.Core;
 
 namespace PatchAdamsSharp;
 
-internal sealed class CodeEditor : RichTextBox
+internal sealed partial class CodeEditor : RichTextBox
 {
     private static readonly Brush Plain = Brush("#ABB2BF");
     private static readonly Brush Keyword = Brush("#C678DD");
@@ -51,6 +51,7 @@ internal sealed class CodeEditor : RichTextBox
             Interval = TimeSpan.FromMilliseconds(200)
         };
         selectionTimer.Tick += SelectionTimer_Tick;
+        InitializeWordMatching();
         Unloaded += (_, _) => CancelPendingSelection();
         AddHandler(CommandManager.PreviewExecutedEvent, new ExecutedRoutedEventHandler(CopyDisconnectedSelection));
         IsReadOnly = true;
@@ -63,7 +64,7 @@ internal sealed class CodeEditor : RichTextBox
         Background = Brush("#282C33");
         Foreground = Plain;
         BorderBrush = Brush("#818A98");
-        Padding = new Thickness(3);
+        Padding = new Thickness(12, 3, 3, 3);
         FontFamily = new FontFamily("Consolas");
         FontSize = 13;
         Document = new FlowDocument
@@ -148,9 +149,19 @@ internal sealed class CodeEditor : RichTextBox
         ArmSelectionTimer();
     }
 
+    protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnGotKeyboardFocus(e);
+        if (selectionTimer is null) return;
+        lostKeyboardFocus = false;
+        InvalidateSelection();
+        ArmSelectionTimer();
+    }
+
     protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs e)
     {
         base.OnLostKeyboardFocus(e);
+        ClearWordMatches();
         // Key-up can go to another control after focus changes.
         lostKeyboardFocus = true;
         ArmSelectionTimer();
@@ -158,6 +169,7 @@ internal sealed class CodeEditor : RichTextBox
 
     private void InvalidateSelection()
     {
+        ClearWordMatches();
         selectionTimer.Stop();
         selectionPending = true;
         SelectionActivity?.Invoke(this, EventArgs.Empty);
@@ -193,11 +205,13 @@ internal sealed class CodeEditor : RichTextBox
         selectionTimer.Stop();
         if (!selectionPending) return;
         selectionPending = false;
+        _ = UpdateWordMatchesAsync();
         SelectionSettled?.Invoke(this, EventArgs.Empty);
     }
 
     public void CancelPendingSelection()
     {
+        ClearWordMatches();
         selectionTimer.Stop();
         selectionPending = false;
         pressedKeys.Clear();
@@ -223,6 +237,7 @@ internal sealed class CodeEditor : RichTextBox
         displayLines.Clear();
         displayLines.AddRange(mappedLines);
         var displayRows = lines.Select(line => line.TrimEnd('\r')).ToArray();
+        SetWordMatchSources(displayRows, mappedLines, hasLineGutters);
         plainLines.Clear();
         plainLines.AddRange(displayRows);
         rowHeight = FontSize * 1.15;
@@ -405,18 +420,7 @@ internal sealed class CodeEditor : RichTextBox
 
     private static void AddHighlightedLine(Paragraph paragraph, string line, string extension, bool hasGutters)
     {
-        var codeStart = 0;
-        if (hasGutters)
-        {
-            var secondSeparator = line.IndexOf('|', line.IndexOf('|') + 1);
-            codeStart = secondSeparator < 0 ? line.Length : secondSeparator + 1;
-        }
-        else if (line.Length >= 2 && (line.StartsWith("+ ", StringComparison.Ordinal) ||
-                                      line.StartsWith("- ", StringComparison.Ordinal) ||
-                                      line.StartsWith("  ", StringComparison.Ordinal)))
-        {
-            codeStart = 2;
-        }
+        var codeStart = CodeStart(line, hasGutters);
 
         if (codeStart > 0)
             paragraph.Inlines.Add(new Run(line[..codeStart]) { Foreground = Comment });
