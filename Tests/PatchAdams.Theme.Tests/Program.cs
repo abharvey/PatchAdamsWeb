@@ -83,6 +83,7 @@ internal static class Program
         ComparisonPersistenceTests.Run(window);
         ComparisonWorkflowTests.Run(window);
         NewSessionTests.Run(window);
+        JavaSyntaxUiTests.Run(window);
         window.Close();
         app.Shutdown();
         Console.WriteLine("PASS live theme brushes, XAML construction, fallback, and native title bar");
