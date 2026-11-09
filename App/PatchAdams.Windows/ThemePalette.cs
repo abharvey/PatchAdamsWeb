@@ -33,7 +33,8 @@ public sealed class ThemePalette : INotifyPropertyChanged
         ["#263B2C"] = "#294113", ["#472D33"] = "#48161B",
         ["#5A3038"] = "#66272D", ["#51402C"] = "#572815",
         ["#41432F"] = "#405C1C", ["#35414B"] = "#0D2F4E",
-        ["#3E526F"] = "#1B4A6E", ["#6674ADE8"] = "#665AC1FE"
+        ["#3E526F"] = "#1B4A6E", ["#6674ADE8"] = "#665AC1FE",
+        ["#4074ADE8"] = "#405AC1FE"
     };
 
     public Color this[string original] => (Color)ColorConverter.ConvertFromString(
