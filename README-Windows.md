@@ -12,6 +12,34 @@ The app makes no network requests and never executes code from a patch.
 - .NET 10 SDK to publish or install from a source checkout.
 - Git is optional; it is needed only to open a Git revision as the base.
 
+## Syntax coloring
+
+Java `.java` files now receive Java-specific, line-based token coloring.
+TypeScript/JavaScript, C#, C/C++, Go, Rust, Python, Swift, Zig, shell, and several
+document formats already have basic shared-lexer coloring. Kotlin, VB.NET, and
+PHP are still planned. This is lexical coloring, not full language parsing.
+
+See [syntax support and roadmap](docs/syntax-highlighting.md) for the exact
+extension inventory, known limits, and requested future languages.
+
+## Selected-word matching
+
+Select one complete identifier in a code pane. After the normal 200 ms selection
+settling delay, exact case-sensitive whole-identifier matches are highlighted in
+that pane and a small accent dot appears beside the line numbers on each matching
+line. Multiple matches on one line produce one dot. There is no symbol tracing:
+matching text in comments and strings participates too.
+
+Partial names, numbers, punctuation, multiple words, and disconnected selections
+do not activate matching. Escape, clearing the selection, switching panes, or
+opening another file clears the overlay. Visible added and removed source lines
+participate; synthetic placeholders and collapsed gaps do not. Compact views scan
+only their displayed source rather than expanding hidden content.
+
+This feature does not change the search box, document text, copied text,
+finding/selection anchors, syntax colors, or diff and finding backgrounds.
+Highlights and gutter dots are temporary display state, not session data.
+
 ## Build and test
 
 From the repository root, with the .NET 10 SDK installed:
