@@ -22,6 +22,15 @@ tests of the current engines and implementation tests for the Windows app.
 - Load two to four `.patch` or `.diff` files by picker, drag and drop, or
   paste. Accept unified diff and `git format-patch` forms, including rename,
   binary-stub, and mode-change metadata.
+- For picker and drop imports, assign A to a bare filename and B/C/D to its
+  `(1)`/`(2)`/`(3)` download copies (with or without a space before the suffix).
+  Require a shared stem and the bare file; selection order does not set identity.
+  Otherwise recognize a unique uppercase A/B/C/D anywhere in each filename
+  stem, or a standalone lowercase a/b/c/d marker. Ignore directories and extensions.
+  Require unique labels across the entire set. If any name is unrecognized,
+  ambiguous, or duplicated, ask the reviewer to assign every file a unique A–D
+  label in a modal before loading; cancel leaves the current review unchanged.
+  Display imported columns in label order. Blind-mode numbering remains separate.
 - Optionally enter the request/task text and display it in a collapsible
   panel.
 - Apply each patch in memory. Report clean, fuzzed, and failed application

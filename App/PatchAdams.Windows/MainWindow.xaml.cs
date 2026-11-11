@@ -152,15 +152,21 @@ public partial class MainWindow : Window
 
     private async Task LoadPatchFilesAsync(IReadOnlyList<string> paths)
     {
+        var labels = PatchLabelAssignment.Infer(paths);
+        if (labels is null)
+        {
+            var dialog = new PatchAssignmentDialog(paths) { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+            labels = dialog.AssignedLabels;
+        }
         var generation = ++patchLoadGeneration;
         try
         {
-            var labels = new[] { "A", "B", "C", "D" };
             var loaded = await Task.Run(() => paths.Select((path, index) =>
             {
                 var text = File.ReadAllText(path);
                 return new LoadedColumn(labels[index], Path.GetFileName(path), text, UnifiedDiffParser.Parse(text));
-            }).ToArray());
+            }).OrderBy(column => column.Label, StringComparer.Ordinal).ToArray());
             if (generation != patchLoadGeneration) return;
             columns.Clear();
             findings.Clear();
@@ -229,7 +235,7 @@ public partial class MainWindow : Window
             var text = Clipboard.GetText();
             var patch = await Task.Run(() => UnifiedDiffParser.Parse(text));
             if (generation != patchLoadGeneration) return;
-            var label = new[] { "A", "B", "C", "D" }.First(candidate =>
+            var label = PatchLabelAssignment.Labels.First(candidate =>
                 columns.All(column => column.Label != candidate));
             columns.Add(new LoadedColumn(label, "pasted patch", text, patch));
             loadedSession = null;
